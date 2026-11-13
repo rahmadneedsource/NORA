@@ -120,3 +120,48 @@ def test_vision_disabled_never_calls_provider(tmp_path, monkeypatch):
 
     assert result["mode"] == "quality_only"
     assert result["findings"] == []
+
+
+def test_vision_merges_same_object_seen_in_several_frames(tmp_path, monkeypatch):
+    settings = _ai_settings(tmp_path)
+    payload = {
+        "summary": "Ada benda di lantai lorong.",
+        "findings": [
+            {
+                "category": "tripping",
+                "title": "Benda di lantai",
+                "priority": "medium",
+                "confidence": 0.6,
+                "frame_index": 0,
+            },
+            {
+                "category": "tripping",
+                "title": "benda  di LANTAI",
+                "description": "Terlihat di frame kedua.",
+                "priority": "medium",
+                "confidence": 0.9,
+                "frame_index": 1,
+            },
+            {
+                "category": "lighting",
+                "title": "Lorong gelap",
+                "priority": "high",
+                "confidence": 0.7,
+                "frame_index": 1,
+            },
+        ],
+        "limitations": [],
+    }
+    monkeypatch.setattr(
+        vision, "_post_openai", lambda *args, **kwargs: (json.dumps(payload), {})
+    )
+
+    result = vision.analyze(settings, _frames(tmp_path), "Lorong", "Lantai 1")
+
+    assert result["mode"] == "ai"
+    assert len(result["findings"]) == 2
+    merged = next(item for item in result["findings"] if item["category"] == "tripping")
+    assert merged["confidence"] == 0.9
+    assert merged["frameIndex"] == 0
+    assert merged["description"] == "Terlihat di frame kedua."
+    assert [item["category"] for item in result["findings"]] == ["tripping", "lighting"]

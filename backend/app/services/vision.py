@@ -89,6 +89,37 @@ class VisionPayload(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+def _merge_duplicate_findings(findings: list[dict]) -> list[dict]:
+    """Collapse repeated findings for the same object seen across several frames.
+
+    A cable or a slipper usually appears in more than one frame. Accepting each
+    copy would create duplicate hazards, so identical category+title pairs keep
+    the highest confidence, the earliest evidence frame, and the first non-empty
+    description/recommendation.
+    """
+    merged: dict[tuple[str, str], dict] = {}
+    for finding in findings:
+        key = (finding["category"], " ".join(finding["title"].casefold().split()))
+        current = merged.get(key)
+        if current is None:
+            merged[key] = dict(finding)
+            continue
+        if finding["confidence"] > current["confidence"]:
+            replacement = dict(finding)
+            replacement["frameIndex"] = min(current["frameIndex"], finding["frameIndex"])
+            replacement["description"] = current["description"] or finding["description"]
+            replacement["recommendation"] = (
+                current["recommendation"] or finding["recommendation"]
+            )
+            replacement["evidenceUrl"] = current["evidenceUrl"] or finding["evidenceUrl"]
+            merged[key] = replacement
+            current = replacement
+        for field in ("description", "recommendation"):
+            if not current.get(field) and finding.get(field):
+                current[field] = finding[field]
+    return list(merged.values())
+
+
 def _select_frames(frames: list[dict], limit: int) -> list[dict]:
     if not frames:
         return []
@@ -300,6 +331,8 @@ def analyze(
                 "locationHint": (item.location_hint or "").strip()[:120],
             }
         )
+
+    findings = _merge_duplicate_findings(findings)
 
     limitations = [text.strip()[:240] for text in payload.limitations if text.strip()][:6]
     limitations.append(

@@ -176,6 +176,8 @@ Setelah parsing, server:
 - mengklemp keyakinan ke 0–1,
 - memetakan kategori/prioritas tak dikenal ke nilai aman,
 - memotong panjang teks,
+- menggabungkan temuan yang merujuk objek sama (kategori + judul) agar satu objek
+  tidak menjadi beberapa hambatan; versi dengan keyakinan tertinggi dipertahankan,
 - menautkan temuan ke frame dan bukti visual,
 - menambahkan batasan wajib: "Temuan AI adalah skrining awal ... wajib
   diperiksa caregiver."

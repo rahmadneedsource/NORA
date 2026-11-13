@@ -172,7 +172,7 @@ yang benar-benar berjalan pada commit final, tanpa mockup atau hasil tempelan.
 | Database | SQLite via `sqlite3` bawaan | Tanpa ORM |
 | Media | Pillow, OpenCV, FFmpeg/FFprobe | Ekstraksi frame dan kualitas |
 | AI (opsional) | API OpenAI-compatible / Anthropic-compatible | `httpx` |
-| Testing | pytest + FastAPI TestClient | 29 tes |
+| Testing | pytest + FastAPI TestClient | 30 tes |
 | Deployment | Docker, Docker Compose, Nginx/Caddy | Lihat `docs/DEPLOY.md` |
 
 Tidak ada CDN eksternal saat runtime. Tailwind, Three.js, OrbitControls, Lucide,
@@ -220,7 +220,7 @@ Detail komponen, model data, dan penanganan kegagalan ada di
 │   │   ├── routers/           # system, locations, hazards, navigation, scans, ...
 │   │   └── services/          # navigation, frames, quality, vision, pipeline, storage
 │   ├── requirements.txt
-│   └── tests/                 # 29 tes API + pipeline
+│   └── tests/                 # 30 tes API + pipeline
 ├── frontend/
 │   ├── index.html             # aplikasi lengkap
 │   └── vendor/                # Tailwind, Three.js, Lucide, Inter
