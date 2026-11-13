@@ -1,0 +1,34 @@
+name: nora
+
+services:
+  nora:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nora:local
+    container_name: nora
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The volume is the only persistent location inside the container.
+      DATA_DIR: /data
+    ports:
+      # Keep the app off the public interface; the reverse proxy terminates TLS.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - nora_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  nora_data:
+    name: nora_data

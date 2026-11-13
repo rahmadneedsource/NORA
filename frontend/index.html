@@ -1,0 +1,3830 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>NORA — Pemetaan Rumah 3D & Navigasi Interaktif</title>
+  <link rel="stylesheet" href="vendor/fonts/inter.css">
+  <script src="vendor/tailwind.js"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            nora: {
+              cream: '#E9D9CA',
+              creamLight: '#F6EFE8',
+              blue: '#4D6080',
+              blueDark: '#3B4B66',
+              blueSoft: '#EBF0F7',
+              orange: '#F4721E',
+              orangeSoft: '#FFF1E8',
+              navy: '#0D253F',
+              muted: '#5A6B7C',
+              border: '#E5E7EB'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif']
+          },
+          boxShadow: {
+            'subtle': '0 2px 10px rgba(13, 37, 63, 0.06)',
+            'sheet': '0 -6px 28px rgba(13, 37, 63, 0.09)',
+            'pill': '0 4px 14px rgba(13, 37, 63, 0.08)'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --motion-fast: 150ms;
+      --motion-med: 240ms;
+      --motion-sheet: 320ms;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :root {
+        --motion-fast: 0ms;
+        --motion-med: 0ms;
+        --motion-sheet: 0ms;
+      }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    html.reduced-motion {
+      --motion-fast: 0ms;
+      --motion-med: 0ms;
+      --motion-sheet: 0ms;
+    }
+
+    html.reduced-motion *,
+    html.reduced-motion *::before,
+    html.reduced-motion *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: #E9D9CA;
+      color: #0D253F;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Custom subtle scrollbars */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(13, 37, 63, 0.16);
+      border-radius: 9999px;
+    }
+
+    /* Bottom Sheet transitions on Mobile */
+    @media (max-width: 1023px) {
+      #control-sheet {
+        transition: transform var(--motion-sheet) cubic-bezier(0.22, 1, 0.36, 1),
+                    height var(--motion-sheet) cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform, height;
+      }
+    }
+
+    /* 3D Floating Pins */
+    .spatial-pin {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      transition: opacity var(--motion-fast) ease, transform var(--motion-fast) ease;
+      pointer-events: auto;
+      user-select: none;
+    }
+    .spatial-pin:hover {
+      transform: translate(-50%, -104%) scale(1.03);
+      z-index: 30;
+    }
+
+    .hazard-pin {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease;
+      pointer-events: auto;
+      user-select: none;
+    }
+    .hazard-pin:hover {
+      transform: translate(-50%, -106%) scale(1.08);
+      z-index: 35;
+    }
+
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      70% { transform: scale(1.35); opacity: 0; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+    .hazard-pulse::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 9999px;
+      border: 2px solid #F4721E;
+      animation: pulseRing 2.2s infinite ease-out;
+    }
+
+    /* Canvas full container */
+    #three-canvas-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      outline: none;
+      touch-action: none;
+    }
+
+    /* Hide scrollbar for horizontal quick chips */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="flex flex-col select-none lg:select-auto bg-nora-cream/40">
+
+  <!-- ===================================================================== -->
+  <!-- A. HEADER RINGKAS (Tanpa judul besar generik)                          -->
+  <!-- ===================================================================== -->
+  <header class="z-40 bg-white/95 backdrop-blur-sm border-b border-gray-200/80 px-4 lg:px-6 pt-[calc(0.65rem+var(--safe-top))] pb-2.5 flex items-center justify-between shrink-0">
+    <!-- Brand Logo NORA (Authentic geometric rounded-terminal SVG wordmark) -->
+    <div class="flex items-center gap-3">
+      <button onclick="switchTab('rumah')" class="flex items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-nora-blue rounded-lg" aria-label="Beranda NORA">
+        <svg class="h-6 lg:h-7 w-auto" viewBox="0 0 184 44" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="NORA">
+          <!-- N -->
+          <path d="M5 38V6C5 4.34315 6.34315 3 8 3H11.2C12.35 3 13.4 3.65 13.92 4.68L29.1 30.8V6C29.1 4.34315 30.4431 3 32.1 3H35.6C37.2569 3 38.6 4.34315 38.6 6V38C38.6 39.6569 37.2569 41 35.6 41H32.5C31.35 41 30.3 40.35 29.78 39.32L14.5 13.1V38C14.5 39.6569 13.1569 41 11.5 41H8C6.34315 41 5 39.6569 5 38Z" fill="#0D253F"/>
+          <!-- O -->
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M66.5 2.5C54.902 2.5 45.5 11.2304 45.5 22C45.5 32.7696 54.902 41.5 66.5 41.5C78.098 41.5 87.5 32.7696 87.5 22C87.5 11.2304 78.098 2.5 66.5 2.5ZM66.5 11.2C60.0367 11.2 54.8 16.0353 54.8 22C54.8 27.9647 60.0367 32.8 66.5 32.8C72.9633 32.8 78.2 27.9647 78.2 22C78.2 16.0353 72.9633 11.2 66.5 11.2Z" fill="#0D253F"/>
+          <!-- R -->
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M95.5 6C95.5 4.34315 96.8431 3 98.5 3H114.2C122.926 3 129.2 8.48 129.2 16.1C129.2 21.75 125.75 26.15 120.35 27.95L128.45 36.75C129.85 38.28 128.76 41 126.68 41H121.9C120.85 41 119.86 40.54 119.18 39.75L110.5 29.4H104.9V38C104.9 39.6569 103.557 41 101.9 41H98.5C96.8431 41 95.5 39.6569 95.5 38V6ZM104.9 11.3V21.3H113.6C117.65 21.3 120.1 19.25 120.1 16.3C120.1 13.35 117.65 11.3 113.6 11.3H104.9Z" fill="#0D253F"/>
+          <!-- A -->
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M153.2 4.8C153.72 3.68 154.84 3 156.08 3H159.42C160.66 3 161.78 3.68 162.3 4.8L177.8 37.3C178.68 39.15 177.33 41 175.28 41H171.3C170.05 41 168.92 40.28 168.42 39.14L165.45 32.5H149.95L146.98 39.14C146.48 40.28 145.35 41 144.1 41H140.22C138.17 41 136.82 39.15 137.7 37.3L153.2 4.8ZM157.7 14.3L153.15 24.6H162.25L157.7 14.3Z" fill="#0D253F"/>
+        </svg>
+      </button>
+      <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-nora-cream/70 text-nora-navy border border-nora-cream">
+        <span class="w-1.5 h-1.5 rounded-full bg-nora-blue"></span>
+        Model Demo • Rumah Keluarga
+      </span>
+      <span id="api-status-pill" class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-nora-orangeSoft text-nora-orange border border-nora-orange/30" title="Status koneksi backend">
+        <span data-api-dot class="w-1.5 h-1.5 rounded-full bg-nora-orange"></span>
+        <span id="api-status-text">Mode lokal</span>
+      </span>
+    </div>
+
+    <!-- Desktop Navigation Tabs (Hidden on mobile, replaced by bottom nav) -->
+    <nav class="hidden lg:flex items-center gap-1 bg-gray-100/90 p-1 rounded-xl" aria-label="Navigasi Utama Desktop">
+      <button data-nav="rumah" onclick="switchTab('rumah')" class="desktop-nav-btn px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 bg-white text-nora-navy shadow-xs">
+        <i data-lucide="home" class="w-4 h-4"></i>
+        <span>Rumah</span>
+      </button>
+      <button data-nav="pindai" onclick="switchTab('pindai')" class="desktop-nav-btn px-4 py-2 rounded-lg text-sm font-medium text-nora-muted hover:text-nora-navy transition-colors flex items-center gap-2">
+        <i data-lucide="scan" class="w-4 h-4"></i>
+        <span>Pindai</span>
+      </button>
+      <button data-nav="riwayat" onclick="switchTab('riwayat')" class="desktop-nav-btn px-4 py-2 rounded-lg text-sm font-medium text-nora-muted hover:text-nora-navy transition-colors flex items-center gap-2">
+        <i data-lucide="history" class="w-4 h-4"></i>
+        <span>Riwayat</span>
+      </button>
+    </nav>
+
+    <!-- Account & Settings compact trigger -->
+    <div class="flex items-center gap-2">
+      <button onclick="openAddLocationModal()" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-nora-blueSoft text-nora-blue hover:bg-nora-blue hover:text-white transition-colors min-h-[40px]" title="Tambah Lokasi Baru">
+        <i data-lucide="plus" class="w-4 h-4"></i>
+        <span>Tambah Lokasi</span>
+      </button>
+      <button onclick="openSettingsModal()" class="w-11 h-11 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-nora-navy transition-colors" aria-label="Akun dan Pengaturan">
+        <i data-lucide="user-cog" class="w-5 h-5 stroke-[1.8]"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- MAIN WORKSPACE CONTAINER                                              -->
+  <!-- ===================================================================== -->
+  <main class="relative flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: RUMAH (3D Viewer + Floating HUD + Mobile Bottom Sheet / Desktop Sidebar) -->
+    <!-- =================================================================== -->
+    <section id="view-rumah" class="relative flex-1 flex flex-col lg:flex-row w-full h-full overflow-hidden">
+
+      <!-- B. VIEWER RUMAH 3D (Area visual terbesar) -->
+      <div id="viewer-wrapper" class="relative flex-1 h-full bg-[#EAE2D9] overflow-hidden">
+        <!-- Three.js Canvas Mount -->
+        <div id="three-canvas-container" class="w-full h-full"></div>
+
+        <!-- 2D Spatial Overlay Container for Floating Room Pills & Hazard Markers -->
+        <div id="spatial-overlay" class="absolute inset-0 pointer-events-none overflow-hidden z-10"></div>
+
+        <!-- Loading / Fallback Overlay -->
+        <div id="viewer-loading" class="absolute inset-0 bg-nora-creamLight/95 z-30 flex flex-col items-center justify-center p-6 text-center transition-opacity duration-300">
+          <div class="w-10 h-10 border-3 border-nora-blue/25 border-t-nora-blue rounded-full animate-spin mb-3"></div>
+          <p class="text-sm font-semibold text-nora-navy">Menyiapkan Model Rumah 3D...</p>
+          <p class="text-xs text-nora-muted mt-1">Memuat denah lantai & titik navigasi</p>
+        </div>
+
+        <!-- 3D Placement Mode Banner (Shown when user is placing a pin/access node in 3D) -->
+        <div id="placement-banner" class="hidden absolute top-3 left-3 right-3 lg:left-5 lg:right-auto lg:max-w-md z-30 bg-nora-navy text-white px-4 py-3 rounded-2xl shadow-pill border border-white/10">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-xl bg-nora-orange flex items-center justify-center shrink-0 mt-0.5">
+              <i data-lucide="crosshair" class="w-4 h-4 text-white"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p id="placement-title" class="text-xs font-semibold uppercase tracking-wider text-nora-cream">Mode Penempatan 3D</p>
+              <p id="placement-instruction" class="text-sm font-medium mt-0.5 leading-snug">Ketuk area lantai pada model 3D untuk menempatkan pin lokasi.</p>
+              <div class="flex items-center gap-2 mt-2.5">
+                <button onclick="cancelPlacementMode()" class="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium transition-colors">Batal</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top-Left Viewer Controls: Floor Switcher + Demo Tag -->
+        <div id="viewer-top-controls" class="absolute top-3 left-3 lg:top-5 lg:left-5 z-20 flex flex-wrap items-center gap-2">
+          <!-- Floor Selector -->
+          <div class="relative inline-flex items-center bg-white/95 backdrop-blur-sm rounded-full shadow-pill border border-gray-200/80 p-1">
+            <button onclick="selectFloor('floor-1')" id="btn-floor-1" class="floor-btn px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors bg-nora-blue text-white min-h-[34px]">
+              Lantai 1
+            </button>
+            <button onclick="selectFloor('floor-2')" id="btn-floor-2" class="floor-btn px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors text-nora-navy hover:bg-gray-100 min-h-[34px]">
+              Lantai 2
+            </button>
+          </div>
+
+          <!-- Mobile "Tambah Lokasi" compact trigger -->
+          <button onclick="openAddLocationModal()" class="sm:hidden inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-sm text-nora-navy text-xs font-semibold shadow-pill border border-gray-200/80 min-h-[42px]" aria-label="Tambah Lokasi">
+            <i data-lucide="map-pin-plus" class="w-4 h-4 text-nora-blue"></i>
+            <span>Tambah</span>
+          </button>
+        </div>
+
+        <!-- Right-Side Camera Controls (Reset View + Zoom In/Out) -->
+        <div class="absolute right-3 lg:right-5 top-1/2 -translate-y-1/2 lg:top-auto lg:bottom-6 lg:translate-y-0 z-20 flex flex-col gap-2.5">
+          <button onclick="resetCameraView()" class="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm shadow-pill border border-gray-200/80 flex items-center justify-center text-nora-navy hover:bg-gray-50 active:scale-95 transition" title="Reset Sudut Pandang" aria-label="Reset Sudut Pandang 3D">
+            <i data-lucide="rotate-ccw" class="w-5 h-5 stroke-[1.9]"></i>
+          </button>
+          <div class="flex flex-col bg-white/95 backdrop-blur-sm rounded-full shadow-pill border border-gray-200/80 overflow-hidden divide-y divide-gray-200/80">
+            <button onclick="zoomCamera(-3.2)" class="w-11 h-11 flex items-center justify-center text-nora-navy hover:bg-gray-50 active:bg-gray-100 transition" title="Perbesar" aria-label="Perbesar Model">
+              <i data-lucide="plus" class="w-5 h-5 stroke-[2]"></i>
+            </button>
+            <button onclick="zoomCamera(3.2)" class="w-11 h-11 flex items-center justify-center text-nora-navy hover:bg-gray-50 active:bg-gray-100 transition" title="Perkecil" aria-label="Perkecil Model">
+              <i data-lucide="minus" class="w-5 h-5 stroke-[2]"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bottom-Left Hazard Summary Pill (Positioned above mobile bottom sheet) -->
+        <div id="hazard-pill-container" class="absolute left-3 lg:left-5 bottom-[198px] lg:bottom-6 z-20 transition-all duration-300">
+          <button onclick="openHazardListView()" id="hazard-summary-pill" class="inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-white/95 backdrop-blur-sm shadow-pill border border-nora-orange/30 hover:border-nora-orange text-nora-navy transition active:scale-[0.99] min-h-[44px]">
+            <span class="w-6 h-6 rounded-full bg-nora-orange text-white flex items-center justify-center shrink-0">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+            </span>
+            <span id="hazard-summary-text" class="text-xs sm:text-sm font-semibold text-nora-navy">2 potensi hambatan</span>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-nora-muted"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- ================================================================= -->
+      <!-- C. PANEL KONTROL: MOBILE 3-STATE BOTTOM SHEET / DESKTOP SIDE PANEL -->
+      <!-- ================================================================= -->
+      <aside id="control-sheet"
+             data-state="medium"
+             class="fixed lg:static inset-x-0 bottom-[calc(58px+var(--safe-bottom))] lg:bottom-auto z-30 bg-white lg:w-[400px] xl:w-[420px] lg:h-full rounded-t-[26px] lg:rounded-none shadow-sheet lg:shadow-none lg:border-l lg:border-gray-200 flex flex-col overflow-hidden"
+             style="height: 235px;">
+
+        <!-- Mobile Drag Handle & State Toggle -->
+        <div id="sheet-drag-header" class="lg:hidden pt-2.5 pb-1.5 px-4 flex flex-col items-center cursor-grab active:cursor-grabbing shrink-0 touch-none">
+          <div class="w-10 h-1.5 rounded-full bg-gray-300 mb-1"></div>
+          <div class="w-full flex items-center justify-between text-[11px] text-nora-muted px-1">
+            <span id="sheet-state-hint">Geser untuk detail</span>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setSheetState('compact')" class="px-2 py-0.5 rounded hover:bg-gray-100 font-medium">Ringkas</button>
+              <button type="button" onclick="setSheetState('medium')" class="px-2 py-0.5 rounded hover:bg-gray-100 font-medium">Sedang</button>
+              <button type="button" onclick="setSheetState('expanded')" class="px-2 py-0.5 rounded hover:bg-gray-100 font-medium">Luas</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL BODY (Scrollable when expanded or on desktop) -->
+        <div id="panel-scroll-body" class="flex-1 overflow-y-auto px-4 lg:px-5 pt-1 lg:pt-5 pb-5 space-y-4">
+
+          <!-- SUB-VIEW 1: DEFAULT NAVIGATION & LOCATION PICKER -->
+          <div id="panel-nav-view" class="space-y-4">
+
+            <!-- Origin & Destination Header Row -->
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <h2 id="panel-dest-title" class="text-lg lg:text-xl font-bold text-nora-navy truncate">Tujuan: Toilet</h2>
+                </div>
+                <div class="flex items-center gap-1.5 mt-0.5 text-xs sm:text-sm text-nora-muted">
+                  <span>Dari</span>
+                  <button onclick="openOriginSelectorModal()" id="origin-pill-btn" class="inline-flex items-center gap-1 font-semibold text-nora-navy underline decoration-nora-blue/40 underline-offset-2 hover:text-nora-blue py-0.5">
+                    <span id="origin-label-text">Kamar Tidur</span>
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button onclick="swapOriginDestination()" class="ml-1 p-1.5 rounded-lg bg-gray-100 hover:bg-nora-blueSoft text-nora-navy transition" title="Tukar Asal dan Tujuan" aria-label="Tukar Asal dan Tujuan">
+                    <i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Search / Manage Locations Button -->
+              <button onclick="toggleLocationManager(true)" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-nora-blue text-xs font-semibold text-nora-navy bg-white shrink-0 min-h-[40px]" title="Cari & Kelola Semua Lokasi">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-nora-blue"></i>
+                <span>Semua Lokasi</span>
+              </button>
+            </div>
+
+            <!-- Route Status / Edge Case Banner (e.g., Disconnected node, same origin/dest, or route summary) -->
+            <div id="route-status-box" class="px-3.5 py-2.5 rounded-xl bg-nora-creamLight border border-nora-cream text-xs text-nora-navy flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <i data-lucide="route" class="w-4 h-4 text-nora-blue shrink-0"></i>
+                <span id="route-status-text" class="truncate font-medium">Jalur tersedia • 3 segmen menuju Toilet</span>
+              </div>
+              <span id="route-floor-badge" class="px-2 py-0.5 rounded-md bg-white text-[11px] font-semibold text-nora-blue shrink-0">Lantai 1</span>
+            </div>
+
+            <!-- Horizontal Destination Quick-Cards (Dynamic from user's location store) -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-nora-muted uppercase tracking-wider">Pilih Tujuan Cepat</span>
+                <button onclick="openAddLocationModal()" class="text-xs font-semibold text-nora-blue hover:underline flex items-center gap-1">
+                  <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                  <span>Tambah Lokasi</span>
+                </button>
+              </div>
+              <div id="destination-cards-row" class="grid grid-cols-3 gap-2.5">
+                <!-- Populated dynamically by JS -->
+              </div>
+            </div>
+
+            <!-- Primary CTA Row: Mulai Panduan + Voice Guidance Button -->
+            <div class="flex items-center gap-2.5 pt-0.5">
+              <button id="primary-guide-btn" onclick="startStepGuidance()" class="flex-1 h-12 rounded-2xl bg-nora-blue hover:bg-nora-blueDark active:scale-[0.99] text-white font-semibold text-sm sm:text-base shadow-subtle transition flex items-center justify-center gap-2">
+                <i data-lucide="navigation" class="w-4 h-4"></i>
+                <span id="primary-guide-btn-text">Mulai Panduan</span>
+              </button>
+              <button id="voice-guide-btn" onclick="toggleVoiceGuidance()" class="w-12 h-12 rounded-2xl border border-gray-200 bg-white hover:bg-nora-blueSoft text-nora-navy flex items-center justify-center transition shrink-0" title="Bacakan Panduan Suara" aria-label="Bacakan Panduan Suara">
+                <i id="voice-icon" data-lucide="volume-2" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <!-- STEP-BY-STEP GUIDANCE DRAWER (Shown when user starts manual route guidance) -->
+            <div id="guidance-stepper-card" class="hidden rounded-2xl border-2 border-nora-blue bg-nora-blueSoft/50 p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="inline-flex items-center gap-1.5 text-xs font-bold text-nora-blue uppercase tracking-wider">
+                  <span class="w-2 h-2 rounded-full bg-nora-blue"></span>
+                  Panduan Langkah (Preview Rute)
+                </span>
+                <button onclick="stopStepGuidance()" class="text-xs font-semibold text-nora-muted hover:text-nora-navy px-2 py-1 rounded-lg">Tutup</button>
+              </div>
+              <div>
+                <p id="step-counter-text" class="text-xs font-semibold text-nora-muted">Langkah 1 dari 3</p>
+                <p id="step-instruction-text" class="text-sm sm:text-base font-semibold text-nora-navy mt-1 leading-snug">
+                  Mulai dari titik akses Kamar Tidur menuju pintu kamar.
+                </p>
+              </div>
+              <p class="text-[11px] text-nora-muted bg-white/80 px-2.5 py-1.5 rounded-lg">
+                Catatan: Panduan berjalan secara manual per langkah. Posisi langsung pengguna belum dilacak otomatis.
+              </p>
+              <div class="flex items-center gap-2 pt-1">
+                <button onclick="prevGuidanceStep()" id="btn-prev-step" class="flex-1 py-2.5 px-3 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-nora-navy hover:bg-gray-50 disabled:opacity-40 min-h-[44px]">
+                  Sebelumnya
+                </button>
+                <button onclick="speakCurrentStep()" class="py-2.5 px-3.5 rounded-xl bg-white border border-gray-200 text-nora-blue hover:bg-nora-blueSoft min-h-[44px]" title="Ulangi Suara" aria-label="Ulangi Panduan Suara">
+                  <i data-lucide="volume-2" class="w-4 h-4"></i>
+                </button>
+                <button onclick="nextGuidanceStep()" id="btn-next-step" class="flex-1 py-2.5 px-3 rounded-xl bg-nora-blue text-white text-xs font-semibold hover:bg-nora-blueDark min-h-[44px]">
+                  Langkah Berikutnya
+                </button>
+              </div>
+            </div>
+
+            <!-- DESKTOP EXTRA SECTION: Route-Relevant Hazards Summary -->
+            <div class="hidden lg:block pt-2 border-t border-gray-100 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-nora-muted uppercase tracking-wider">Tinjauan Hambatan Rute</span>
+                <span class="text-[11px] text-nora-muted">Berdasarkan pemindaian terakhir</span>
+              </div>
+              <div id="desktop-hazard-mini-list" class="space-y-2">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 2: ALL LOCATIONS SEARCH & CRUD MANAGER -->
+          <div id="panel-locations-view" class="hidden space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <button onclick="toggleLocationManager(false)" class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center hover:bg-gray-50" aria-label="Kembali">
+                  <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </button>
+                <div>
+                  <h3 class="text-base font-bold text-nora-navy">Daftar Lokasi Rumah</h3>
+                  <p class="text-xs text-nora-muted">Kelola titik tujuan & sambungan jalur</p>
+                </div>
+              </div>
+              <button onclick="openAddLocationModal()" class="px-3 py-2 rounded-xl bg-nora-blue text-white text-xs font-semibold flex items-center gap-1.5 min-h-[40px]">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                <span>Baru</span>
+              </button>
+            </div>
+
+            <!-- Search & Floor Filter -->
+            <div class="flex gap-2">
+              <div class="relative flex-1">
+                <i data-lucide="search" class="w-4 h-4 text-nora-muted absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input id="location-search-input" type="text" oninput="renderAllLocationsList()" placeholder="Cari nama lokasi (mis. Kamar Ibu)..." class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-nora-blue" />
+              </div>
+              <select id="location-floor-filter" onchange="renderAllLocationsList()" class="px-3 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+                <option value="all">Semua Lantai</option>
+                <option value="floor-1">Lantai 1</option>
+                <option value="floor-2">Lantai 2</option>
+              </select>
+            </div>
+
+            <!-- Grouped Locations List -->
+            <div id="all-locations-list" class="space-y-2.5 pb-4">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 3: HAZARD DETAIL & VERIFICATION VIEW -->
+          <div id="panel-hazards-view" class="hidden space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <button onclick="closeHazardListView()" class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center hover:bg-gray-50" aria-label="Kembali">
+                  <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </button>
+                <div>
+                  <h3 class="text-base font-bold text-nora-navy">Potensi Hambatan</h3>
+                  <p class="text-xs text-nora-muted">Berdasarkan pemindaian terakhir</p>
+                </div>
+              </div>
+              <span class="px-2.5 py-1 rounded-full bg-nora-orangeSoft text-nora-orange text-xs font-semibold">Perlu Tinjauan</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-nora-creamLight/80 border border-nora-cream text-xs text-nora-navy leading-relaxed">
+              Temuan berikut terdeteksi pada segmen jalur aktif. Pendamping disarankan memeriksa kondisi fisik secara langsung sebelum perjalanan.
+            </div>
+
+            <div id="hazard-cards-container" class="space-y-3 pb-4">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+        </div>
+      </aside>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: PINDAI (Scan Video/Foto & Pipeline Rekonstruksi Jujur)       -->
+    <!-- =================================================================== -->
+    <section id="view-pindai" class="hidden flex-1 overflow-y-auto bg-nora-creamLight/50 px-4 lg:px-8 py-5 pb-24 lg:pb-8">
+      <div class="max-w-3xl mx-auto space-y-5">
+
+        <!-- Honest Prototype Notice Banner -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-nora-cream shadow-subtle flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-xl bg-nora-blueSoft text-nora-blue flex items-center justify-center shrink-0">
+            <i data-lucide="info" class="w-5 h-5"></i>
+          </div>
+          <div class="space-y-1">
+            <h2 class="text-base font-bold text-nora-navy">Pemindaian Ruang & Rekonstruksi 3D</h2>
+            <p class="text-xs sm:text-sm text-nora-muted leading-relaxed">
+              Unggah video walkthrough atau beberapa foto ruangan dari sudut berbeda. Pada prototipe browser ini, backend rekonstruksi 3D (Gaussian Splatting / Fotogrametri) dipisahkan dari viewer: setelah pemrosesan selesai, Anda dapat meninjau alur status dan menggunakan <strong>Model Demo</strong> untuk pemetaan lokasi.
+            </p>
+          </div>
+        </div>
+
+        <!-- Upload & Area Form Card -->
+        <div class="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200/80 shadow-subtle space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="sm:col-span-2">
+              <label for="scan-area-name" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">Nama Area / Lantai Pemindaian</label>
+              <input id="scan-area-name" type="text" value="Lantai 1 — Kamar & Lorong Utama" placeholder="Contoh: Lantai 1 — Kamar & Ruang Tamu" class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-nora-navy focus:outline-none focus:border-nora-blue" />
+            </div>
+            <div>
+              <label for="scan-floor-select" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">Lantai</label>
+              <select id="scan-floor-select" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+                <option value="floor-1">Lantai 1</option>
+                <option value="floor-2">Lantai 2</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Upload Dropzone -->
+          <div>
+            <span class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">Media Rekaman (Video atau Multi-Foto)</span>
+            <label for="scan-file-input" class="flex flex-col items-center justify-center border-2 border-dashed border-nora-blue/35 hover:border-nora-blue bg-nora-blueSoft/30 rounded-2xl p-6 text-center cursor-pointer transition">
+              <div class="w-12 h-12 rounded-2xl bg-white shadow-subtle flex items-center justify-center text-nora-blue mb-2.5">
+                <i data-lucide="video" class="w-6 h-6"></i>
+              </div>
+              <p class="text-sm font-semibold text-nora-navy">Pilih Video Rumah atau Kumpulan Foto</p>
+              <p class="text-xs text-nora-muted mt-1 max-w-md">
+                Disarankan minimal 4–8 foto dari berbagai sudut ruangan atau 1 video berjalan perlahan (MP4, MOV, JPG, PNG).
+              </p>
+              <input id="scan-file-input" type="file" accept="video/*,image/*" multiple class="hidden" onchange="handleScanFilesSelected(event)" />
+            </label>
+          </div>
+
+          <!-- Actionable Validation Warning -->
+          <div id="scan-validation-msg" class="hidden p-3 rounded-xl bg-nora-orangeSoft border border-nora-orange/30 text-xs text-nora-navy flex items-start gap-2.5">
+            <i data-lucide="alert-circle" class="w-4 h-4 text-nora-orange shrink-0 mt-0.5"></i>
+            <span id="scan-validation-text"></span>
+          </div>
+
+          <!-- Media Preview Grid -->
+          <div id="scan-preview-section" class="hidden space-y-2">
+            <div class="flex items-center justify-between">
+              <span id="scan-file-count" class="text-xs font-semibold text-nora-navy">0 file dipilih</span>
+              <button onclick="clearScanFiles()" class="text-xs font-semibold text-nora-orange hover:underline">Hapus Pilihan</button>
+            </div>
+            <div id="scan-preview-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5"></div>
+          </div>
+
+          <!-- Start Pipeline Button -->
+          <div class="pt-1 flex flex-col sm:flex-row gap-2.5">
+            <button id="start-scan-btn" onclick="startReconstructionPipeline()" class="flex-1 h-12 rounded-2xl bg-nora-blue hover:bg-nora-blueDark text-white font-semibold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50">
+              <i data-lucide="cpu" class="w-4 h-4"></i>
+              <span>Proses Pemindaian</span>
+            </button>
+            <button onclick="showScanTips()" class="h-12 px-4 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-nora-navy">
+              Tips Perekaman
+            </button>
+          </div>
+        </div>
+
+        <!-- Pipeline Stage Tracker (Honest stages without fake percentages) -->
+        <div id="pipeline-status-card" class="hidden bg-white rounded-2xl p-4 sm:p-6 border border-gray-200/80 shadow-subtle space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-bold text-nora-navy">Status Pipeline Pemrosesan</h3>
+              <p id="pipeline-job-id" class="text-xs text-nora-muted font-mono mt-0.5">Job ID: —</p>
+            </div>
+            <span id="pipeline-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-nora-blueSoft text-nora-blue">Berjalan</span>
+          </div>
+
+          <ol id="pipeline-steps-list" class="space-y-2.5">
+            <!-- Populated dynamically: Mengunggah -> Menyiapkan gambar -> Merekonstruksi -> Menyiapkan model -> Siap ditinjau -->
+          </ol>
+
+          <div id="pipeline-result" class="hidden space-y-4"></div>
+
+          <div id="pipeline-complete-actions" class="hidden pt-2 border-t border-gray-100 space-y-3">
+            <div class="p-3 rounded-xl bg-nora-creamLight text-xs text-nora-navy leading-relaxed">
+              <strong>Transparansi:</strong> Pemindaian menilai kelayakan media dan menandai potensi hambatan yang terlihat. Model 3D pada viewer adalah <strong>twin demo</strong> yang sudah terkalibrasi dengan graph navigasi, bukan hasil rekonstruksi otomatis dari media Anda.
+            </div>
+            <button onclick="switchTab('rumah')" class="w-full h-11 rounded-xl bg-nora-blue text-white text-sm font-semibold hover:bg-nora-blueDark transition">
+              Tinjau pada Viewer 3D
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: RIWAYAT (History of Routes, Scans & Hazard Verifications)    -->
+    <!-- =================================================================== -->
+    <section id="view-riwayat" class="hidden flex-1 overflow-y-auto bg-nora-creamLight/50 px-4 lg:px-8 py-5 pb-24 lg:pb-8">
+      <div class="max-w-3xl mx-auto space-y-5">
+
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-nora-navy">Riwayat Aktivitas & Pemindaian</h2>
+            <p class="text-xs text-nora-muted">Catatan rute navigasi, pemindaian ruang, dan verifikasi hambatan</p>
+          </div>
+          <button onclick="clearHistoryLog()" class="px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-semibold text-nora-muted hover:text-nora-navy">
+            Bersihkan Log
+          </button>
+        </div>
+
+        <!-- Scan Sessions Summary -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-subtle space-y-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-nora-muted">Model & Pemindaian Tersimpan</h3>
+          <div id="scan-history-list" class="space-y-2.5">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Route & Caregiver Verification Log -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-subtle space-y-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-nora-muted">Log Rute & Verifikasi Pendamping</h3>
+          <div id="activity-history-list" class="space-y-2">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- D. MOBILE BOTTOM NAVIGATION BAR (3 Menu: Rumah, Pindai, Riwayat)      -->
+  <!-- ===================================================================== -->
+  <nav class="lg:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-gray-200/90 pb-[var(--safe-bottom)] px-2 h-[calc(58px+var(--safe-bottom))] flex items-center justify-around" aria-label="Navigasi Bawah Mobile">
+    <button data-nav="rumah" onclick="switchTab('rumah')" class="mobile-nav-btn flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-nora-navy font-semibold relative">
+      <i data-lucide="home" class="w-5 h-5 stroke-[2.2]"></i>
+      <span class="text-[11px]">Rumah</span>
+      <span class="nav-indicator absolute bottom-1 w-8 h-1 rounded-full bg-nora-navy"></span>
+    </button>
+    <button data-nav="pindai" onclick="switchTab('pindai')" class="mobile-nav-btn flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-nora-muted font-medium relative">
+      <i data-lucide="scan" class="w-5 h-5 stroke-[1.9]"></i>
+      <span class="text-[11px]">Pindai</span>
+      <span class="nav-indicator hidden absolute bottom-1 w-8 h-1 rounded-full bg-nora-navy"></span>
+    </button>
+    <button data-nav="riwayat" onclick="switchTab('riwayat')" class="mobile-nav-btn flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-nora-muted font-medium relative">
+      <i data-lucide="history" class="w-5 h-5 stroke-[1.9]"></i>
+      <span class="text-[11px]">Riwayat</span>
+      <span class="nav-indicator hidden absolute bottom-1 w-8 h-1 rounded-full bg-nora-navy"></span>
+    </button>
+  </nav>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 1: ADD / EDIT LOCATION MODAL (Dynamic CRUD + Auto-Icon + Node)  -->
+  <!-- ===================================================================== -->
+  <div id="location-modal" class="hidden fixed inset-0 z-50 bg-nora-navy/45 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="loc-modal-title">
+    <div class="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[90dvh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <h3 id="loc-modal-title" class="text-base font-bold text-nora-navy">Tambah Lokasi Baru</h3>
+        <button onclick="closeLocationModal()" class="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center text-nora-muted" aria-label="Tutup">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="location-form" onsubmit="saveLocationForm(event)" class="flex-1 overflow-y-auto p-5 space-y-4">
+        <input type="hidden" id="loc-edit-id" value="" />
+
+        <!-- Step 1: Location Name -->
+        <div>
+          <label for="loc-name-input" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">1. Nama Lokasi *</label>
+          <input id="loc-name-input" type="text" required oninput="handleLocationNameInput(this.value)" placeholder="Contoh: Kamar Ibu, Toilet Belakang..." class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-nora-navy focus:outline-none focus:border-nora-blue" />
+          <p id="category-suggestion-hint" class="hidden text-xs text-nora-blue mt-1 font-medium"></p>
+        </div>
+
+        <!-- Step 2: Category & Floor -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="loc-category-select" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">2. Kategori</label>
+            <select id="loc-category-select" onchange="handleCategoryChange(this.value)" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+              <option value="bedroom">Kamar Tidur</option>
+              <option value="bathroom">Kamar Mandi / Toilet</option>
+              <option value="kitchen">Dapur</option>
+              <option value="living">Ruang Tamu</option>
+              <option value="dining">Ruang Makan</option>
+              <option value="workspace">Ruang Kerja</option>
+              <option value="entrance">Pintu Masuk</option>
+              <option value="stairs">Tangga</option>
+              <option value="garage">Garasi</option>
+              <option value="garden">Taman</option>
+              <option value="laundry">Area Cuci</option>
+              <option value="other">Lokasi Lainnya</option>
+            </select>
+          </div>
+          <div>
+            <label for="loc-floor-select" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">3. Lantai</label>
+            <select id="loc-floor-select" onchange="populateAccessNodesDropdown()" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+              <option value="floor-1">Lantai 1</option>
+              <option value="floor-2">Lantai 2</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Step 3: Icon Picker (Auto-mapped, user overridable, locked once manually changed) -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-nora-navy uppercase tracking-wider">4. Ikon Lokasi</span>
+            <span id="icon-lock-badge" class="text-[11px] text-nora-muted">Otomatis sesuai kategori</span>
+          </div>
+          <div id="icon-picker-grid" class="grid grid-cols-6 gap-2">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Step 4: 3D Label Position (Interactive 3D Pick or Manual Coordinates) -->
+        <div class="p-3.5 rounded-2xl bg-nora-creamLight/70 border border-nora-cream space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-nora-navy">5. Titik Label pada Model 3D</span>
+            <button type="button" onclick="trigger3DPinPlacement()" class="px-3 py-1.5 rounded-xl bg-nora-blue text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-nora-blueDark">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+              <span>Pilih di Model 3D</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-nora-muted">
+            Titik label menentukan posisi pin ikon melayang (mis. di atas kasur atau meja).
+          </p>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <label class="flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-gray-200">
+              <span class="text-nora-muted font-medium">X:</span>
+              <input id="loc-pos-x" type="number" step="0.1" value="0" class="w-full font-mono text-nora-navy focus:outline-none" />
+            </label>
+            <label class="flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-gray-200">
+              <span class="text-nora-muted font-medium">Z:</span>
+              <input id="loc-pos-z" type="number" step="0.1" value="0" class="w-full font-mono text-nora-navy focus:outline-none" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Step 5: Navigation Access Node (Walkable floor connection) -->
+        <div class="p-3.5 rounded-2xl bg-nora-blueSoft/50 border border-nora-blue/20 space-y-2">
+          <label for="loc-access-node-select" class="block text-xs font-bold text-nora-navy">6. Titik Akses Jalur Navigasi (Area Lantai)</label>
+          <p class="text-[11px] text-nora-muted">
+            Hubungkan lokasi ke titik lantai yang dapat dilalui agar rute tidak menembus dinding atau furnitur. Jika dibiarkan kosong, status menjadi <strong>"Perlu pengaturan jalur"</strong>.
+          </p>
+          <select id="loc-access-node-select" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-xs font-semibold text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+            <!-- Populated dynamically based on floor -->
+          </select>
+        </div>
+
+        <!-- Step 6: Optional Photo Reference -->
+        <div>
+          <label for="loc-photo-input" class="block text-xs font-semibold text-nora-navy uppercase tracking-wider mb-1.5">7. Foto Referensi (Opsional)</label>
+          <div class="flex items-center gap-3">
+            <label for="loc-photo-input" class="px-3.5 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-nora-navy cursor-pointer flex items-center gap-1.5">
+              <i data-lucide="camera" class="w-4 h-4 text-nora-blue"></i>
+              <span>Unggah Foto</span>
+            </label>
+            <input id="loc-photo-input" type="file" accept="image/*" class="hidden" onchange="handleLocationPhotoUpload(event)" />
+            <span id="loc-photo-status" class="text-xs text-nora-muted">Belum ada foto</span>
+          </div>
+          <img id="loc-photo-preview" src="" alt="Preview Foto Lokasi" class="hidden mt-2 h-24 w-full object-cover rounded-xl border border-gray-200" />
+        </div>
+
+        <div class="pt-2 flex items-center gap-2.5">
+          <button type="button" onclick="closeLocationModal()" class="flex-1 h-11 rounded-xl border border-gray-200 text-xs font-semibold text-nora-navy hover:bg-gray-50">
+            Batal
+          </button>
+          <button type="submit" class="flex-1 h-11 rounded-xl bg-nora-blue hover:bg-nora-blueDark text-white text-xs font-semibold shadow-subtle">
+            Simpan Lokasi
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 2: ORIGIN SELECTOR MODAL                                        -->
+  <!-- ===================================================================== -->
+  <div id="origin-modal" class="hidden fixed inset-0 z-50 bg-nora-navy/45 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="origin-modal-title">
+    <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[80dvh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h3 id="origin-modal-title" class="text-base font-bold text-nora-navy">Pilih Lokasi Awal</h3>
+        <button onclick="closeOriginSelectorModal()" class="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center text-nora-muted">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div id="origin-options-list" class="p-4 overflow-y-auto space-y-2">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 3: CONFIRMATION DIALOG (Replaces browser confirm/alert)         -->
+  <!-- ===================================================================== -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-nora-navy/50 backdrop-blur-[2px] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4">
+      <div class="w-11 h-11 rounded-2xl bg-nora-orangeSoft text-nora-orange flex items-center justify-center">
+        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 id="confirm-title" class="text-base font-bold text-nora-navy">Hapus Lokasi?</h3>
+        <p id="confirm-message" class="text-xs sm:text-sm text-nora-muted mt-1 leading-relaxed">Lokasi yang dihapus akan hilang dari daftar asal dan tujuan.</p>
+      </div>
+      <div class="flex items-center gap-2.5 pt-1">
+        <button onclick="closeConfirmModal()" class="flex-1 h-11 rounded-xl border border-gray-200 text-xs font-semibold text-nora-navy hover:bg-gray-50">
+          Batal
+        </button>
+        <button id="confirm-accept-btn" class="flex-1 h-11 rounded-xl bg-nora-orange hover:opacity-95 text-white text-xs font-semibold">
+          Ya, Hapus
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 4: SETTINGS, ACCESSIBILITY & HONEST SCOPE DISCLOSURE            -->
+  <!-- ===================================================================== -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-nora-navy/45 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[88dvh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h3 id="settings-modal-title" class="text-base font-bold text-nora-navy">Pengaturan & Informasi NORA</h3>
+        <button onclick="closeSettingsModal()" class="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center text-nora-muted">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto space-y-4">
+        <!-- Caregiver Profile Pill -->
+        <div class="flex items-center gap-3 p-3.5 rounded-2xl bg-nora-creamLight border border-nora-cream">
+          <div class="w-10 h-10 rounded-full bg-nora-blue text-white font-bold flex items-center justify-center text-sm">K</div>
+          <div>
+            <p class="text-sm font-bold text-nora-navy">Mode Pendamping & Keluarga</p>
+            <p id="storage-mode-text" class="text-xs text-nora-muted">Rumah Keluarga • Penyimpanan lokal</p>
+          </div>
+        </div>
+
+        <!-- Server & AI Status -->
+        <div class="p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-sm font-semibold text-nora-navy">Status Server & AI</p>
+            <button onclick="reconnectServer()" class="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-[11px] font-semibold text-nora-navy">Periksa Ulang</button>
+          </div>
+          <p id="server-status-text" class="text-xs text-nora-muted leading-relaxed">Memeriksa koneksi backend...</p>
+          <p id="ai-status-text" class="text-xs text-nora-muted leading-relaxed">Status model AI belum diketahui.</p>
+        </div>
+
+        <!-- Reduced Motion Toggle -->
+        <div class="flex items-center justify-between p-3.5 rounded-2xl border border-gray-200">
+          <div class="pr-3">
+            <p class="text-sm font-semibold text-nora-navy">Kurangi Gerakan (Reduced Motion)</p>
+            <p class="text-xs text-nora-muted mt-0.5">Nonaktifkan animasi kamera otomatis dan percepat transisi panel.</p>
+          </div>
+          <input id="reduced-motion-toggle" type="checkbox" onchange="toggleReducedMotion(this.checked)" class="w-5 h-5 accent-nora-blue rounded cursor-pointer" />
+        </div>
+
+        <!-- Honest Scope & Hackathon Limitations -->
+        <div class="p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-1.5 text-xs text-nora-muted leading-relaxed">
+          <p class="font-bold text-nora-navy">Cakupan Prototipe & Batasan Jujur</p>
+          <p>• NORA dirancang sebagai alat bantu orientasi visual di dalam rumah bagi orang dengan Alzheimer dengan dukungan aktif keluarga/pendamping.</p>
+          <p>• Prototipe ini <strong>tidak</strong> menggantikan pendampingan manusia, belum memiliki pelacakan posisi dalam ruangan (IPS) real-time, dan tidak mengklaim mencegah kejadian jatuh secara klinis.</p>
+        </div>
+
+        <!-- Reset Demo Data -->
+        <button onclick="confirmResetDemoData()" class="w-full h-11 rounded-xl border border-nora-orange/40 text-nora-orange hover:bg-nora-orangeSoft text-xs font-semibold transition">
+          Atur Ulang Data Demo ke Awal
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION (Non-blocking feedback) -->
+  <div id="toast-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2 w-full max-w-sm px-4"></div>
+
+  <!-- ===================================================================== -->
+  <!-- APPLICATION LOGIC: THREE.JS + SPATIAL GRAPH + A* + CRUD + SPEECH      -->
+  <!-- ===================================================================== -->
+  <script>
+    'use strict';
+
+    // =========================================================================
+    // 1. CONSTANTS, CATEGORY MAPPING & INITIAL SEED DATA
+    // =========================================================================
+    const STORAGE_KEYS = {
+      LOCATIONS: 'nora_locations_v1',
+      HAZARDS: 'nora_hazards_v1',
+      HISTORY: 'nora_history_v1',
+      PREFS: 'nora_prefs_v1'
+    };
+
+    const CATEGORY_CONFIG = {
+      bedroom:   { label: 'Kamar Tidur',          icon: 'bed',             keywords: ['kamar', 'tidur', 'kasur', 'istirahat', 'ibu', 'ayah', 'nenek', 'kakek'] },
+      bathroom:  { label: 'Kamar Mandi / Toilet', icon: 'bath',            keywords: ['toilet', 'wc', 'mandi', 'kamar mandi', 'wastafel'] },
+      kitchen:   { label: 'Dapur',                icon: 'cooking-pot',     keywords: ['dapur', 'masak', 'kompor'] },
+      living:    { label: 'Ruang Tamu',           icon: 'sofa',            keywords: ['tamu', 'keluarga', 'santai', 'sofa', 'tv'] },
+      dining:    { label: 'Ruang Makan',          icon: 'utensils',        keywords: ['makan', 'meja makan'] },
+      workspace: { label: 'Ruang Kerja',          icon: 'lamp-desk',       keywords: ['kerja', 'belajar', 'kantor', 'baca'] },
+      entrance:  { label: 'Pintu Masuk',          icon: 'door-open',       keywords: ['pintu', 'masuk', 'teras', 'depan', 'keluar'] },
+      stairs:    { label: 'Tangga',               icon: 'footprints',      keywords: ['tangga', 'naik', 'turun'] },
+      garage:    { label: 'Garasi',               icon: 'car',             keywords: ['garasi', 'mobil', 'motor', 'parkir'] },
+      garden:    { label: 'Taman',                icon: 'trees',           keywords: ['taman', 'halaman', 'balkon', 'kebun'] },
+      laundry:   { label: 'Area Cuci',            icon: 'washing-machine', keywords: ['cuci', 'jemur', 'laundry'] },
+      other:     { label: 'Lokasi Lainnya',       icon: 'map-pin',         keywords: [] }
+    };
+
+    const AVAILABLE_ICONS = [
+      { key: 'bed', label: 'Tempat Tidur' },
+      { key: 'bath', label: 'Toilet / Mandi' },
+      { key: 'cooking-pot', label: 'Alat Masak' },
+      { key: 'sofa', label: 'Sofa' },
+      { key: 'utensils', label: 'Meja Makan' },
+      { key: 'lamp-desk', label: 'Meja Kerja' },
+      { key: 'door-open', label: 'Pintu' },
+      { key: 'footprints', label: 'Tangga' },
+      { key: 'car', label: 'Mobil' },
+      { key: 'trees', label: 'Tanaman' },
+      { key: 'washing-machine', label: 'Mesin Cuci' },
+      { key: 'map-pin', label: 'Pin Lokasi' }
+    ];
+
+    // Separated Spatial Navigation Graph (Strictly walkable floor nodes & doorways)
+    // Coordinates match the 3D dollhouse floorplan (X: -8..8, Z: -8..8)
+    const NAVIGATION_GRAPH = {
+      nodes: [
+        // Lantai 1 Nodes
+        { id: 'n1_bed_access',    floorId: 'floor-1', name: 'Sisi Kasur Kamar Tidur',    x: -2.4, z:  2.2, type: 'room_access' },
+        { id: 'n1_bed_door',      floorId: 'floor-1', name: 'Pintu Kamar Tidur',         x: -1.1, z:  0.4, type: 'doorway' },
+        { id: 'n1_hall_south',    floorId: 'floor-1', name: 'Lorong Tengah (Selatan)',   x:  0.1, z:  0.4, type: 'corridor' },
+        { id: 'n1_hall_mid',      floorId: 'floor-1', name: 'Lorong Tengah (Tengah)',    x:  0.5, z: -2.0, type: 'corridor' },
+        { id: 'n1_hall_north',    floorId: 'floor-1', name: 'Depan Pintu Toilet',        x:  0.8, z: -4.2, type: 'doorway' },
+        { id: 'n1_toilet_access', floorId: 'floor-1', name: 'Area Lantai Toilet',        x:  0.8, z: -5.6, type: 'room_access' },
+        { id: 'n1_living_door',   floorId: 'floor-1', name: 'Akses Ruang Tamu',          x:  2.1, z:  0.4, type: 'doorway' },
+        { id: 'n1_living_access', floorId: 'floor-1', name: 'Tengah Ruang Tamu',         x:  4.2, z:  1.8, type: 'room_access' },
+        { id: 'n1_kitchen_door',  floorId: 'floor-1', name: 'Akses Dapur & Makan',       x:  2.1, z: -2.2, type: 'doorway' },
+        { id: 'n1_kitchen_access',floorId: 'floor-1', name: 'Area Lantai Dapur',         x:  4.5, z: -3.6, type: 'room_access' },
+        { id: 'n1_entrance',      floorId: 'floor-1', name: 'Pintu Masuk Utama',         x:  0.1, z:  5.4, type: 'doorway' },
+        { id: 'n1_stairs_base',   floorId: 'floor-1', name: 'Bawah Tangga Lantai 1',     x: -4.5, z: -3.2, type: 'stairs' },
+
+        // Lantai 2 Nodes
+        { id: 'n2_stairs_top',    floorId: 'floor-2', name: 'Atas Tangga Lantai 2',      x: -4.5, z: -3.2, type: 'stairs' },
+        { id: 'n2_lounge_mid',    floorId: 'floor-2', name: 'Ruang Keluarga Atas',       x:  0.0, z: -1.5, type: 'room_access' },
+        { id: 'n2_guest_door',    floorId: 'floor-2', name: 'Pintu Kamar Tamu Atas',     x:  2.2, z: -1.5, type: 'doorway' },
+        { id: 'n2_guest_access',  floorId: 'floor-2', name: 'Kamar Tamu Atas',           x:  4.2, z: -1.5, type: 'room_access' },
+        { id: 'n2_balcony_access',floorId: 'floor-2', name: 'Balkon Taman Atas',         x:  0.0, z:  3.4, type: 'room_access' }
+      ],
+      edges: [
+        // Lantai 1 walkable connections (never crossing walls or beds)
+        { id: 'e1', from: 'n1_bed_access',    to: 'n1_bed_door',      walkable: true, instruction: 'Berjalan dari sisi tempat tidur menuju pintu Kamar Tidur.' },
+        { id: 'e2', from: 'n1_bed_door',      to: 'n1_hall_south',    walkable: true, instruction: 'Lewati ambang pintu kamar masuk ke Lorong Tengah.' },
+        { id: 'e3', from: 'n1_hall_south',    to: 'n1_hall_mid',      walkable: true, instruction: 'Lurus menyusuri Lorong Tengah ke arah utara.' },
+        { id: 'e4', from: 'n1_hall_mid',      to: 'n1_hall_north',    walkable: true, instruction: 'Lanjutkan langkah di lorong menuju pintu Toilet.' },
+        { id: 'e5', from: 'n1_hall_north',    to: 'n1_toilet_access', walkable: true, instruction: 'Masuk melalui pintu menuju area lantai Toilet.' },
+        { id: 'e6', from: 'n1_hall_south',    to: 'n1_entrance',      walkable: true, instruction: 'Berjalan lurus ke selatan menuju Pintu Masuk Utama.' },
+        { id: 'e7', from: 'n1_hall_south',    to: 'n1_living_door',   walkable: true, instruction: 'Belok ke arah bukaan Ruang Tamu.' },
+        { id: 'e8', from: 'n1_living_door',   to: 'n1_living_access', walkable: true, instruction: 'Masuk ke area tengah Ruang Tamu.' },
+        { id: 'e9', from: 'n1_hall_mid',      to: 'n1_kitchen_door',  walkable: true, instruction: 'Belok ke kanan menuju akses Dapur.' },
+        { id: 'e10',from: 'n1_kitchen_door',  to: 'n1_kitchen_access',walkable: true, instruction: 'Masuk ke area lantai Dapur yang lapang.' },
+        { id: 'e11',from: 'n1_hall_mid',      to: 'n1_stairs_base',   walkable: true, instruction: 'Menuju area Tangga di sisi barat.' },
+        { id: 'e12',from: 'n1_stairs_base',   to: 'n2_stairs_top',    walkable: true, crossFloor: true, cost: 2.5, instruction: 'Naiki tangga menuju Lantai 2 dengan memegang pegangan.' },
+
+        // Lantai 2 walkable connections
+        { id: 'e20',from: 'n2_stairs_top',    to: 'n2_lounge_mid',    walkable: true, instruction: 'Berjalan dari tangga menuju Ruang Keluarga Atas.' },
+        { id: 'e21',from: 'n2_lounge_mid',    to: 'n2_guest_door',    walkable: true, instruction: 'Menuju pintu Kamar Tamu Atas.' },
+        { id: 'e22',from: 'n2_guest_door',    to: 'n2_guest_access',  walkable: true, instruction: 'Masuk ke dalam Kamar Tamu Atas.' },
+        { id: 'e23',from: 'n2_lounge_mid',    to: 'n2_balcony_access',walkable: true, instruction: 'Berjalan lurus menuju area Balkon Taman.' }
+      ]
+    };
+
+    const INITIAL_LOCATIONS = [
+      {
+        id: 'loc_bedroom_main',
+        homeId: 'home_demo_1',
+        floorId: 'floor-1',
+        name: 'Kamar Tidur',
+        category: 'bedroom',
+        iconKey: 'bed',
+        labelPosition: { x: -4.2, y: 1.4, z: 2.2 },
+        navigationNodeId: 'n1_bed_access',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_toilet_main',
+        homeId: 'home_demo_1',
+        floorId: 'floor-1',
+        name: 'Toilet',
+        category: 'bathroom',
+        iconKey: 'bath',
+        labelPosition: { x: 0.8, y: 1.5, z: -6.2 },
+        navigationNodeId: 'n1_toilet_access',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_living_main',
+        homeId: 'home_demo_1',
+        floorId: 'floor-1',
+        name: 'Ruang Tamu',
+        category: 'living',
+        iconKey: 'sofa',
+        labelPosition: { x: 4.8, y: 1.4, z: 2.2 },
+        navigationNodeId: 'n1_living_access',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_kitchen_main',
+        homeId: 'home_demo_1',
+        floorId: 'floor-1',
+        name: 'Dapur',
+        category: 'kitchen',
+        iconKey: 'cooking-pot',
+        labelPosition: { x: 4.8, y: 1.4, z: -4.2 },
+        navigationNodeId: 'n1_kitchen_access',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_entrance_main',
+        homeId: 'home_demo_1',
+        floorId: 'floor-1',
+        name: 'Pintu Masuk',
+        category: 'entrance',
+        iconKey: 'door-open',
+        labelPosition: { x: 0.1, y: 1.4, z: 5.8 },
+        navigationNodeId: 'n1_entrance',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_lounge_f2',
+        homeId: 'home_demo_1',
+        floorId: 'floor-2',
+        name: 'Ruang Keluarga Atas',
+        category: 'living',
+        iconKey: 'sofa',
+        labelPosition: { x: -0.4, y: 1.4, z: -1.5 },
+        navigationNodeId: 'n2_lounge_mid',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      },
+      {
+        id: 'loc_guest_f2',
+        homeId: 'home_demo_1',
+        floorId: 'floor-2',
+        name: 'Kamar Tamu Atas',
+        category: 'bedroom',
+        iconKey: 'bed',
+        labelPosition: { x: 4.5, y: 1.4, z: -1.5 },
+        navigationNodeId: 'n2_guest_access',
+        photo: null,
+        verificationStatus: 'verified',
+        createdAt: '2026-11-12T08:00:00Z',
+        updatedAt: '2026-11-12T08:00:00Z'
+      }
+    ];
+
+    const INITIAL_HAZARDS = [
+      {
+        id: 'haz_cable_1',
+        floorId: 'floor-1',
+        type: 'Kabel melintang',
+        locationName: 'Jalur Kamar Tidur → Pintu',
+        position: { x: -2.0, y: 0.35, z: 1.7 },
+        edgeIds: ['e1'],
+        description: 'Kabel lampu meja terbentang di lantai dekat jalur keluar sisi tempat tidur.',
+        recommendation: 'Rapikan kabel ke sepanjang dinding atau gunakan pelindung kabel datar.',
+        scannedAt: '13 Nov 2026, 09:15 WIB',
+        status: 'Perlu diperiksa'
+      },
+      {
+        id: 'haz_chair_2',
+        floorId: 'floor-1',
+        type: 'Kursi menghalangi akses',
+        locationName: 'Lorong Tengah',
+        position: { x: 1.35, y: 0.85, z: -1.8 },
+        edgeIds: ['e3', 'e4'],
+        description: 'Kursi kayu sedikit menjorok ke area lorong menuju pintu Toilet.',
+        recommendation: 'Geser kursi merapat ke dinding kanan agar lebar lorong tetap lapang.',
+        scannedAt: '13 Nov 2026, 09:15 WIB',
+        status: 'Perlu diperiksa'
+      }
+    ];
+
+    // =========================================================================
+    // 1b. BACKEND API CLIENT (graceful fallback to localStorage when offline)
+    // =========================================================================
+    const API = {
+      online: false,
+      base: '',
+      ai: null,
+      version: null,
+      lastError: null
+    };
+
+    const FINDING_CATEGORY_LABELS = {
+      tripping: 'Risiko tersandung',
+      slipping: 'Risiko terpeleset',
+      lighting: 'Pencahayaan kurang',
+      mobility: 'Hambatan mobilitas',
+      access: 'Akses terhalang',
+      other: 'Potensi hambatan lain'
+    };
+
+    const PRIORITY_LABELS = {
+      high: 'Prioritas tinggi',
+      medium: 'Prioritas sedang',
+      low: 'Prioritas rendah'
+    };
+
+    async function apiFetch(path, options = {}) {
+      if (window.location.protocol === 'file:') {
+        throw new Error('Halaman dibuka langsung dari file, backend tidak tersedia.');
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), options.timeoutMs || 15000);
+      try {
+        const response = await fetch(API.base + path, {
+          method: options.method || 'GET',
+          headers: options.headers || undefined,
+          body: options.body,
+          signal: controller.signal,
+          credentials: 'same-origin'
+        });
+        if (!response.ok) {
+          let detail = `HTTP ${response.status}`;
+          try {
+            const body = await response.json();
+            if (body && typeof body.detail === 'string') detail = body.detail;
+            else if (body && Array.isArray(body.detail) && body.detail[0] && body.detail[0].msg) detail = body.detail[0].msg;
+          } catch (parseError) {
+            // Keep the HTTP status message.
+          }
+          const error = new Error(detail);
+          error.status = response.status;
+          throw error;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        return contentType.includes('application/json') ? response.json() : response.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function jsonBody(payload) {
+      return {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      };
+    }
+
+    function applyServerGraph(graph) {
+      if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return;
+      if (graph.nodes.length < 2) return;
+      NAVIGATION_GRAPH.nodes.length = 0;
+      NAVIGATION_GRAPH.edges.length = 0;
+      graph.nodes.forEach(node => NAVIGATION_GRAPH.nodes.push({ ...node }));
+      graph.edges.forEach(edge => NAVIGATION_GRAPH.edges.push({ ...edge }));
+    }
+
+    function ensureSelectionValidity() {
+      if (!appState.locations.some(l => l.id === appState.originId) && appState.locations.length > 0) {
+        appState.originId = appState.locations[0].id;
+      }
+      if (!appState.locations.some(l => l.id === appState.destinationId) && appState.locations.length > 1) {
+        const fallback = appState.locations.find(l => l.id !== appState.originId);
+        appState.destinationId = fallback ? fallback.id : null;
+      }
+    }
+
+    async function connectToServer(options = {}) {
+      try {
+        const data = await apiFetch('/api/bootstrap', { timeoutMs: options.timeoutMs || 7000 });
+        API.online = true;
+        API.ai = data.ai || null;
+        API.version = data.version || null;
+        API.lastError = null;
+        applyServerGraph(data.graph);
+        if (Array.isArray(data.locations) && data.locations.length) appState.locations = data.locations;
+        if (Array.isArray(data.hazards)) appState.hazards = data.hazards;
+        if (Array.isArray(data.history)) appState.history = data.history;
+        ensureSelectionValidity();
+        renderApiStatus();
+        renderDestinationCards();
+        renderAllLocationsList();
+        renderHazardsUI();
+        renderHistoryView();
+        recalculateAndRenderRoute();
+        return true;
+      } catch (error) {
+        API.online = false;
+        API.lastError = error && error.message ? error.message : 'Tidak dapat menghubungi server.';
+        renderApiStatus();
+        return false;
+      }
+    }
+
+    function renderApiStatus() {
+      const pill = document.getElementById('api-status-pill');
+      const pillText = document.getElementById('api-status-text');
+      const storageText = document.getElementById('storage-mode-text');
+      const serverText = document.getElementById('server-status-text');
+      const aiText = document.getElementById('ai-status-text');
+
+      if (pill && pillText) {
+        pill.className = API.online
+          ? 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-nora-blueSoft text-nora-blue border border-nora-blue/30'
+          : 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-nora-orangeSoft text-nora-orange border border-nora-orange/30';
+        pillText.textContent = API.online ? 'Server aktif' : 'Mode lokal';
+        pill.title = API.online
+          ? 'Data tersinkron dengan backend NORA.'
+          : (API.lastError ? `Mode lokal: ${API.lastError}` : 'Mode lokal: data disimpan di browser.');
+        const dot = pill.querySelector('[data-api-dot]');
+        if (dot) {
+          dot.className = API.online
+            ? 'w-1.5 h-1.5 rounded-full bg-green-500'
+            : 'w-1.5 h-1.5 rounded-full bg-nora-orange';
+        }
+      }
+
+      if (storageText) {
+        storageText.textContent = API.online
+          ? 'Rumah Keluarga • Tersinkron ke server'
+          : 'Rumah Keluarga • Penyimpanan lokal';
+      }
+
+      if (serverText) {
+        serverText.textContent = API.online
+          ? `Terhubung ke backend NORA${API.version ? ' v' + API.version : ''}. Data lokasi, hambatan, dan pemindaian tersimpan di server.`
+          : `Backend belum terhubung${API.lastError ? ` (${API.lastError})` : ''}. Semua perubahan disimpan di browser ini saja.`;
+      }
+
+      if (aiText) {
+        if (!API.online) {
+          aiText.textContent = 'Status AI belum dapat diperiksa tanpa backend.';
+        } else if (API.ai && API.ai.configured) {
+          aiText.textContent = `Model vision aktif: ${API.ai.provider || 'openai_compatible'} • ${API.ai.model || 'model tidak diketahui'}. Temuan AI tetap wajib diverifikasi caregiver.`;
+        } else {
+          aiText.textContent = `AI vision tidak aktif. ${API.ai && API.ai.reason ? API.ai.reason : 'Pemindaian hanya memeriksa kualitas frame.'}`;
+        }
+      }
+    }
+
+    async function reconnectServer() {
+      const ok = await connectToServer();
+      showToast(
+        ok ? 'Terhubung ke server NORA.' : 'Server belum dapat dihubungi. Tetap dalam mode lokal.',
+        ok ? 'info' : 'warning'
+      );
+    }
+
+    // =========================================================================
+    // 2. APPLICATION STATE & STORAGE PERSISTENCE
+    // =========================================================================
+    let appState = {
+      activeTab: 'rumah',
+      activeFloor: 'floor-1',
+      originId: 'loc_bedroom_main',
+      destinationId: 'loc_toilet_main',
+      locations: [],
+      hazards: [],
+      history: [],
+      prefs: {
+        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      },
+      currentPathNodes: [],
+      currentPathEdges: [],
+      guidanceActive: false,
+      guidanceStepIndex: 0,
+      isSpeaking: false,
+      sheetState: 'medium', // 'compact' | 'medium' | 'expanded'
+      placementMode: false,
+      iconManuallyChosen: false,
+      selectedIconKey: 'bed',
+      tempPhotoDataUrl: null,
+      uploadedScanFiles: []
+    };
+
+    function loadPersistentState() {
+      try {
+        const savedLocs = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
+        appState.locations = savedLocs ? JSON.parse(savedLocs) : structuredClone(INITIAL_LOCATIONS);
+
+        const savedHazards = localStorage.getItem(STORAGE_KEYS.HAZARDS);
+        appState.hazards = savedHazards ? JSON.parse(savedHazards) : structuredClone(INITIAL_HAZARDS);
+
+        const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+        appState.history = savedHistory ? JSON.parse(savedHistory) : [
+          {
+            id: 'hist_init_1',
+            type: 'scan',
+            title: 'Pemindaian Model Demo — Rumah Keluarga',
+            detail: 'Lantai 1 & Lantai 2 • 2 temuan potensi hambatan dicatat',
+            timestamp: '13 Nov 2026, 09:15 WIB'
+          }
+        ];
+
+        const savedPrefs = localStorage.getItem(STORAGE_KEYS.PREFS);
+        if (savedPrefs) {
+          appState.prefs = { ...appState.prefs, ...JSON.parse(savedPrefs) };
+        }
+      } catch (err) {
+        console.warn('Gagal memuat penyimpanan lokal, menggunakan data bawaan:', err);
+        appState.locations = structuredClone(INITIAL_LOCATIONS);
+        appState.hazards = structuredClone(INITIAL_HAZARDS);
+      }
+
+      // Ensure valid origin & destination IDs
+      if (!appState.locations.some(l => l.id === appState.originId) && appState.locations.length > 0) {
+        appState.originId = appState.locations[0].id;
+      }
+      if (!appState.locations.some(l => l.id === appState.destinationId) && appState.locations.length > 1) {
+        appState.destinationId = appState.locations[1].id;
+      }
+
+      applyReducedMotionClass();
+    }
+
+    function saveLocations() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(appState.locations));
+      } catch (e) {
+        showToast('Penyimpanan penuh. Coba gunakan foto berukuran lebih kecil.', 'warning');
+      }
+    }
+
+    function saveHazards() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.HAZARDS, JSON.stringify(appState.hazards));
+      } catch (e) {}
+    }
+
+    function saveHistory(entry) {
+      if (API.online && entry.type !== 'route') {
+        refreshHistory();
+        return;
+      }
+      const record = {
+        id: 'hist_' + Date.now(),
+        timestamp: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB',
+        ...entry
+      };
+      appState.history.unshift(record);
+      if (appState.history.length > 30) appState.history.pop();
+      try {
+        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(appState.history));
+      } catch (e) {}
+      if (API.online) {
+        apiFetch('/api/history', {
+          method: 'POST',
+          ...jsonBody({ type: record.type, title: record.title, detail: record.detail || '' })
+        })
+          .then(fresh => {
+            if (Array.isArray(fresh)) {
+              appState.history = fresh;
+              renderHistoryView();
+            }
+          })
+          .catch(() => {});
+      }
+      renderHistoryView();
+    }
+
+    async function refreshHistory() {
+      if (!API.online) return;
+      try {
+        const data = await apiFetch('/api/history', { timeoutMs: 8000 });
+        if (Array.isArray(data)) {
+          appState.history = data;
+          renderHistoryView();
+        }
+      } catch (error) {
+        // Keep the last known history when the refresh fails.
+      }
+    }
+
+    async function refreshHazards() {
+      if (!API.online) return;
+      try {
+        const data = await apiFetch('/api/hazards', { timeoutMs: 8000 });
+        if (Array.isArray(data)) {
+          appState.hazards = data;
+          renderHazardsUI();
+        }
+      } catch (error) {
+        // Keep the last known hazards when the refresh fails.
+      }
+    }
+
+    function applyReducedMotionClass() {
+      document.documentElement.classList.toggle('reduced-motion', !!appState.prefs.reducedMotion);
+      const toggle = document.getElementById('reduced-motion-toggle');
+      if (toggle) toggle.checked = !!appState.prefs.reducedMotion;
+    }
+
+    function toggleReducedMotion(enabled) {
+      appState.prefs.reducedMotion = enabled;
+      localStorage.setItem(STORAGE_KEYS.PREFS, JSON.stringify(appState.prefs));
+      applyReducedMotionClass();
+      showToast(enabled ? 'Mode kurangi gerakan diaktifkan' : 'Animasi halus standar diaktifkan');
+    }
+
+    // =========================================================================
+    // 3. A* / DIJKSTRA SHORTEST PATHFINDING ON NAVIGATION GRAPH
+    // =========================================================================
+    function findShortestPath(startNodeId, endNodeId) {
+      if (!startNodeId || !endNodeId) return { status: 'missing_node', nodes: [], edges: [] };
+      if (startNodeId === endNodeId) {
+        const node = NAVIGATION_GRAPH.nodes.find(n => n.id === startNodeId);
+        return { status: 'same_location', nodes: node ? [node] : [], edges: [] };
+      }
+
+      const startNode = NAVIGATION_GRAPH.nodes.find(n => n.id === startNodeId);
+      const endNode = NAVIGATION_GRAPH.nodes.find(n => n.id === endNodeId);
+      if (!startNode || !endNode) return { status: 'missing_node', nodes: [], edges: [] };
+
+      // Build bidirectional adjacency list from walkable edges
+      const adj = {};
+      NAVIGATION_GRAPH.nodes.forEach(n => { adj[n.id] = []; });
+      NAVIGATION_GRAPH.edges.forEach(edge => {
+        if (!edge.walkable) return;
+        const nA = NAVIGATION_GRAPH.nodes.find(n => n.id === edge.from);
+        const nB = NAVIGATION_GRAPH.nodes.find(n => n.id === edge.to);
+        if (!nA || !nB) return;
+        const dist = Math.hypot(nB.x - nA.x, nB.z - nA.z);
+        const cost = Number.isFinite(edge.cost) ? edge.cost : dist;
+        adj[edge.from].push({ to: edge.to, cost, edge });
+        adj[edge.to].push({ to: edge.from, cost, edge });
+      });
+
+      // A* Search
+      const openSet = new Set([startNodeId]);
+      const cameFrom = {};
+      const gScore = {};
+      const fScore = {};
+      NAVIGATION_GRAPH.nodes.forEach(n => {
+        gScore[n.id] = Infinity;
+        fScore[n.id] = Infinity;
+      });
+      gScore[startNodeId] = 0;
+      fScore[startNodeId] = Math.hypot(endNode.x - startNode.x, endNode.z - startNode.z);
+
+      while (openSet.size > 0) {
+        let current = null;
+        let lowestF = Infinity;
+        openSet.forEach(id => {
+          if (fScore[id] < lowestF) {
+            lowestF = fScore[id];
+            current = id;
+          }
+        });
+
+        if (current === endNodeId) {
+          // Reconstruct path
+          const pathNodes = [];
+          const pathEdges = [];
+          let curr = current;
+          while (curr) {
+            pathNodes.unshift(NAVIGATION_GRAPH.nodes.find(n => n.id === curr));
+            const prevInfo = cameFrom[curr];
+            if (prevInfo) {
+              pathEdges.unshift(prevInfo.edge);
+              curr = prevInfo.from;
+            } else {
+              curr = null;
+            }
+          }
+          return { status: 'ok', nodes: pathNodes, edges: pathEdges };
+        }
+
+        openSet.delete(current);
+        const neighbors = adj[current] || [];
+        for (const neighbor of neighbors) {
+          const tentativeG = gScore[current] + neighbor.cost;
+          if (tentativeG < gScore[neighbor.to]) {
+            cameFrom[neighbor.to] = { from: current, edge: neighbor.edge };
+            gScore[neighbor.to] = tentativeG;
+            const targetN = NAVIGATION_GRAPH.nodes.find(n => n.id === neighbor.to);
+            const h = Math.hypot(endNode.x - targetN.x, endNode.z - targetN.z);
+            fScore[neighbor.to] = tentativeG + h;
+            openSet.add(neighbor.to);
+          }
+        }
+      }
+
+      return { status: 'no_path', nodes: [], edges: [] };
+    }
+
+    // =========================================================================
+    // 4. THREE.JS 3D ARCHITECTURAL HOUSE ENGINE (Warm Daylight Cutaway)
+    // =========================================================================
+    let scene, camera, renderer, controls;
+    let floor1Group, floor2Group, routeGroup, placementMarkerMesh;
+    let floorPlaneRaycasterMesh;
+    const raycaster = new THREE.Raycaster();
+    const pointerVec = new THREE.Vector2();
+    let cameraAnim = null;
+    let routeAnimProgress = 1;
+    let isContextActive = true;
+
+    function initThreeViewer() {
+      const container = document.getElementById('three-canvas-container');
+      const loadingEl = document.getElementById('viewer-loading');
+
+      try {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xEAE2D9);
+
+        const width = container.clientWidth || window.innerWidth;
+        const height = container.clientHeight || window.innerHeight;
+
+        camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
+        camera.position.set(-7.5, 11.8, 10.5);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.06;
+
+        container.innerHTML = '';
+        container.appendChild(renderer.domElement);
+
+        // Orbit Controls with damping & sensible bounds
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.07;
+        controls.minDistance = 5.5;
+        controls.maxDistance = 24;
+        controls.maxPolarAngle = Math.PI / 2.25;
+        controls.minPolarAngle = 0.25;
+        controls.target.set(0.2, 0.4, -0.5);
+
+        // Cancel automatic camera glide if user interacts manually
+        controls.addEventListener('start', () => {
+          cameraAnim = null;
+        });
+
+        // Warm Natural Daylight Lighting
+        const ambientLight = new THREE.HemisphereLight(0xFFFBF5, 0xD8C7B6, 0.78);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xFFF6EA, 0.85);
+        dirLight.position.set(-9, 16, 11);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 2;
+        dirLight.shadow.camera.far = 36;
+        const d = 11;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.bias = -0.0005;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.DirectionalLight(0xDCE7F7, 0.35);
+        fillLight.position.set(10, 9, -8);
+        scene.add(fillLight);
+
+        // Invisible Raycast Plane for 3D Pin Placement
+        const planeGeo = new THREE.PlaneGeometry(16, 16);
+        const planeMat = new THREE.MeshBasicMaterial({ visible: false });
+        floorPlaneRaycasterMesh = new THREE.Mesh(planeGeo, planeMat);
+        floorPlaneRaycasterMesh.rotation.x = -Math.PI / 2;
+        floorPlaneRaycasterMesh.position.y = 0.05;
+        scene.add(floorPlaneRaycasterMesh);
+
+        // Build Architectural Floors
+        floor1Group = buildFloor1Architecture();
+        floor2Group = buildFloor2Architecture();
+        floor2Group.visible = false;
+        scene.add(floor1Group);
+        scene.add(floor2Group);
+
+        // Group for Dynamic Navigation Path Ribbon
+        routeGroup = new THREE.Group();
+        scene.add(routeGroup);
+
+        // Placement preview ring
+        const ringGeo = new THREE.RingGeometry(0.22, 0.34, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xF4721E, side: THREE.DoubleSide });
+        placementMarkerMesh = new THREE.Mesh(ringGeo, ringMat);
+        placementMarkerMesh.rotation.x = -Math.PI / 2;
+        placementMarkerMesh.position.y = 0.08;
+        placementMarkerMesh.visible = false;
+        scene.add(placementMarkerMesh);
+
+        // Pointer Click on Canvas for 3D Pin Placement
+        renderer.domElement.addEventListener('pointerdown', handleCanvasPointerDown);
+
+        // Resize & Visibility Handling
+        window.addEventListener('resize', onWindowResize);
+        document.addEventListener('visibilitychange', () => {
+          isContextActive = !document.hidden;
+        });
+
+        setTimeout(() => {
+          loadingEl.style.opacity = '0';
+          setTimeout(() => loadingEl.classList.add('hidden'), 300);
+        }, 250);
+
+        recalculateAndRenderRoute();
+        animateLoop();
+      } catch (err) {
+        console.error('3D Renderer error:', err);
+        loadingEl.innerHTML = `
+          <div class="max-w-xs space-y-2">
+            <p class="text-sm font-bold text-nora-navy">Tampilan 3D Tidak Tersedia</p>
+            <p class="text-xs text-nora-muted">Perangkat tidak mendukung WebGL. Anda tetap dapat memilih lokasi dan melihat rute melalui panel di bawah.</p>
+          </div>
+        `;
+      }
+    }
+
+    // Helper: Procedural Oak Wood & Cream Plaster Materials
+    function createHouseMaterials() {
+      // Oak wood floor canvas texture
+      const woodCanvas = document.createElement('canvas');
+      woodCanvas.width = 256;
+      woodCanvas.height = 256;
+      const ctx = woodCanvas.getContext('2d');
+      ctx.fillStyle = '#CFA982';
+      ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#C79F76' : '#D5B28E';
+        ctx.fillRect(i * 32, 0, 31, 256);
+        ctx.fillStyle = 'rgba(120, 82, 48, 0.14)';
+        ctx.fillRect(i * 32 + 31, 0, 1, 256);
+      }
+      const woodTex = new THREE.CanvasTexture(woodCanvas);
+      woodTex.wrapS = THREE.RepeatWrapping;
+      woodTex.wrapT = THREE.RepeatWrapping;
+      woodTex.repeat.set(6, 6);
+
+      // Bathroom light tile texture
+      const tileCanvas = document.createElement('canvas');
+      tileCanvas.width = 128;
+      tileCanvas.height = 128;
+      const tctx = tileCanvas.getContext('2d');
+      tctx.fillStyle = '#EFE9E1';
+      tctx.fillRect(0, 0, 128, 128);
+      tctx.strokeStyle = '#DCD3C8';
+      tctx.lineWidth = 2;
+      tctx.strokeRect(0, 0, 64, 64);
+      tctx.strokeRect(64, 0, 64, 64);
+      tctx.strokeRect(0, 64, 64, 64);
+      tctx.strokeRect(64, 64, 64, 64);
+      const tileTex = new THREE.CanvasTexture(tileCanvas);
+      tileTex.wrapS = THREE.RepeatWrapping;
+      tileTex.wrapT = THREE.RepeatWrapping;
+      tileTex.repeat.set(4, 4);
+
+      return {
+        woodFloor: new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.68, metalness: 0.04 }),
+        tileFloor: new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.55, metalness: 0.05 }),
+        wall: new THREE.MeshStandardMaterial({ color: 0xF5EFE8, roughness: 0.85 }),
+        wallTop: new THREE.MeshStandardMaterial({ color: 0xE7DDD2, roughness: 0.9 }),
+        plinth: new THREE.MeshStandardMaterial({ color: 0xD7C7B7, roughness: 0.8 }),
+        oakFurniture: new THREE.MeshStandardMaterial({ color: 0xB6895B, roughness: 0.6 }),
+        fabricCream: new THREE.MeshStandardMaterial({ color: 0xEDE5DC, roughness: 0.9 }),
+        fabricTaupe: new THREE.MeshStandardMaterial({ color: 0xC8B8A6, roughness: 0.88 }),
+        ceramic: new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.25 }),
+        rug: new THREE.MeshStandardMaterial({ color: 0xDFD4C8, roughness: 0.95 }),
+        plant: new THREE.MeshStandardMaterial({ color: 0x5E7A52, roughness: 0.75 }),
+        cableBlack: new THREE.MeshStandardMaterial({ color: 0x2B2D30, roughness: 0.5 })
+      };
+    }
+
+    function addWallBox(group, mat, x, z, w, d, h = 2.1) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, h / 2, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      return mesh;
+    }
+
+    function buildFloor1Architecture() {
+      const group = new THREE.Group();
+      const m = createHouseMaterials();
+
+      // Base Plinth
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(13.6, 0.35, 14.6), m.plinth);
+      plinth.position.set(0, -0.18, -0.3);
+      plinth.receiveShadow = true;
+      group.add(plinth);
+
+      // Main Oak Floor Slab
+      const mainFloor = new THREE.Mesh(new THREE.BoxGeometry(13.0, 0.08, 14.0), m.woodFloor);
+      mainFloor.position.set(0, 0.0, -0.3);
+      mainFloor.receiveShadow = true;
+      group.add(mainFloor);
+
+      // Bathroom Tile Floor (North-Center zone: x -1.8..2.6, z -7.2..-4.3)
+      const bathFloor = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.09, 2.9), m.tileFloor);
+      bathFloor.position.set(0.4, 0.01, -5.75);
+      bathFloor.receiveShadow = true;
+      group.add(bathFloor);
+
+      // --- ARCHITECTURAL WALLS WITH CLEAN DOOR OPENINGS ---
+      // Perimeter Outer Walls
+      addWallBox(group, m.wall, 0, -7.2, 13.2, 0.28, 2.2);   // North Back Wall
+      addWallBox(group, m.wall, -6.5, -0.3, 0.28, 14.0, 2.2); // West Left Wall
+      addWallBox(group, m.wall, 6.5, -0.3, 0.28, 14.0, 2.2);  // East Right Wall
+      // South Wall with Entrance Opening at x = 0.1
+      addWallBox(group, m.wall, -3.7, 6.6, 5.8, 0.28, 1.5);
+      addWallBox(group, m.wall, 3.9, 6.6, 5.4, 0.28, 1.5);
+
+      // Bedroom Wall (West-South room: x -6.4..-1.1, z -1.2..6.5) with Doorway at x = -1.1, z = 0.4
+      addWallBox(group, m.wall, -3.75, -1.2, 5.3, 0.24, 2.1); // Bedroom North wall
+      addWallBox(group, m.wall, -1.1, -0.75, 0.24, 0.9, 2.1); // East wall north of door
+      addWallBox(group, m.wall, -1.1, 3.95, 0.24, 5.1, 2.1);  // East wall south of door (leaves doorway z -0.3..1.4)
+      // Open Bedroom Door Leaf
+      const bedDoor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.95, 1.05), m.oakFurniture);
+      bedDoor.position.set(-1.55, 0.98, 1.05);
+      bedDoor.rotation.y = 0.45;
+      bedDoor.castShadow = true;
+      group.add(bedDoor);
+
+      // Bathroom Wall (North-Center: z = -4.3) with Doorway at x = 0.8
+      addWallBox(group, m.wall, -1.0, -4.3, 2.0, 0.24, 2.1);
+      addWallBox(group, m.wall, 2.2, -4.3, 1.4, 0.24, 2.1);
+      addWallBox(group, m.wall, 2.8, -5.75, 0.24, 3.0, 2.1); // Bathroom East divider
+
+      // East Wall separating Hallway from Living Room & Kitchen (x = 2.1)
+      // Doorway 1 (Kitchen) at z = -2.2, Doorway 2 (Living Room) at z = 0.4
+      addWallBox(group, m.wall, 2.1, -3.7, 0.24, 1.2, 2.1);
+      addWallBox(group, m.wall, 2.1, -0.9, 0.24, 1.1, 2.1);
+      addWallBox(group, m.wall, 2.1, 3.9, 0.24, 5.2, 1.8);
+      // Divider between Kitchen (North-East) and Living Room (South-East)
+      addWallBox(group, m.wall, 4.3, -1.0, 4.2, 0.22, 1.8);
+
+      // --- FURNITURE PROPS (Matching NORA Mockup Aesthetic) ---
+      // 1. Bedroom Queen Bed (West wall)
+      const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.42, 2.2), m.oakFurniture);
+      bedFrame.position.set(-4.9, 0.25, 2.3);
+      bedFrame.castShadow = true;
+      bedFrame.receiveShadow = true;
+      group.add(bedFrame);
+
+      const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.34, 2.05), m.fabricCream);
+      mattress.position.set(-4.9, 0.56, 2.3);
+      mattress.castShadow = true;
+      group.add(mattress);
+
+      const blanket = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.37, 2.08), m.fabricTaupe);
+      blanket.position.set(-4.42, 0.57, 2.3);
+      group.add(blanket);
+
+      // Pillows
+      [-0.5, 0.5].forEach(pz => {
+        const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.18, 0.75), m.ceramic);
+        pillow.position.set(-5.75, 0.78, 2.3 + pz);
+        group.add(pillow);
+      });
+
+      // Bedroom Rug & Hallway Runner Rug
+      const bedRug = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.02, 2.8), m.rug);
+      bedRug.position.set(-3.4, 0.05, 2.3);
+      bedRug.receiveShadow = true;
+      group.add(bedRug);
+
+      const hallRug = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.02, 2.5), m.rug);
+      hallRug.position.set(0.1, 0.05, 2.6);
+      hallRug.receiveShadow = true;
+      group.add(hallRug);
+
+      // 2. Bathroom Fixtures (Toilet, Vanity Sink, Shower Base)
+      const toiletBase = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.7), m.ceramic);
+      toiletBase.position.set(-0.2, 0.26, -6.4);
+      toiletBase.castShadow = true;
+      group.add(toiletBase);
+      const toiletTank = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.25), m.ceramic);
+      toiletTank.position.set(-0.2, 0.46, -6.75);
+      group.add(toiletTank);
+
+      const vanity = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.82, 0.55), m.oakFurniture);
+      vanity.position.set(-1.1, 0.44, -5.2);
+      vanity.castShadow = true;
+      group.add(vanity);
+
+      // 3. Living Room Sofa & Coffee Table (South-East)
+      const sofaBase = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.48, 2.8), m.fabricCream);
+      sofaBase.position.set(5.5, 0.28, 2.4);
+      sofaBase.castShadow = true;
+      group.add(sofaBase);
+      const sofaBack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 2.8), m.fabricCream);
+      sofaBack.position.set(5.9, 0.46, 2.4);
+      group.add(sofaBack);
+      const coffeeTable = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.36, 1.5), m.oakFurniture);
+      coffeeTable.position.set(4.0, 0.22, 2.4);
+      coffeeTable.castShadow = true;
+      group.add(coffeeTable);
+
+      // 4. Kitchen Counter & Dining Table (North-East)
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.9, 0.75), m.ceramic);
+      counter.position.set(4.5, 0.48, -6.5);
+      counter.castShadow = true;
+      group.add(counter);
+      const diningTable = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.76, 1.1), m.oakFurniture);
+      diningTable.position.set(4.5, 0.42, -3.5);
+      diningTable.castShadow = true;
+      group.add(diningTable);
+
+      // 5. Potted Plants for Warmth
+      [[-5.8, -0.5], [5.8, -0.3]].forEach(([px, pz]) => {
+        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.35, 16), m.ceramic);
+        pot.position.set(px, 0.2, pz);
+        const foliage = new THREE.Mesh(new THREE.DodecahedronGeometry(0.38, 1), m.plant);
+        foliage.position.set(px, 0.58, pz);
+        foliage.castShadow = true;
+        group.add(pot, foliage);
+      });
+
+      // 6. HAZARD PROPS IN 3D (Matching the 2 real hazards)
+      // Hazard A: Black power cable stretched across bedroom floor near exit
+      const cableCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-4.2, 0.07, 3.4),
+        new THREE.Vector3(-3.0, 0.07, 2.5),
+        new THREE.Vector3(-2.0, 0.07, 1.7),
+        new THREE.Vector3(-1.3, 0.07, 1.2)
+      ]);
+      const cableMesh = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 24, 0.032, 8, false), m.cableBlack);
+      group.add(cableMesh);
+
+      // Hazard B: Angled wooden armchair protruding into hallway
+      const chairGroup = new THREE.Group();
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.42, 0.75), m.fabricCream);
+      seat.position.y = 0.24;
+      seat.castShadow = true;
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.78, 0.75), m.oakFurniture);
+      back.position.set(0.31, 0.42, 0);
+      back.castShadow = true;
+      chairGroup.add(seat, back);
+      chairGroup.position.set(1.42, 0.04, -1.8);
+      chairGroup.rotation.y = 0.35;
+      group.add(chairGroup);
+
+      return group;
+    }
+
+    function buildFloor2Architecture() {
+      const group = new THREE.Group();
+      const m = createHouseMaterials();
+
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.35, 11.4), m.plinth);
+      plinth.position.set(0, -0.18, -0.5);
+      plinth.receiveShadow = true;
+      group.add(plinth);
+
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.08, 10.8), m.woodFloor);
+      floor.position.set(0, 0.0, -0.5);
+      floor.receiveShadow = true;
+      group.add(floor);
+
+      // Perimeter walls
+      addWallBox(group, m.wall, 0, -5.8, 12.0, 0.26, 2.0);
+      addWallBox(group, m.wall, -5.8, -0.5, 0.26, 10.8, 2.0);
+      addWallBox(group, m.wall, 5.8, -0.5, 0.26, 10.8, 2.0);
+      // Balcony low glass/plaster parapet on south
+      addWallBox(group, m.wallTop, 0, 4.8, 12.0, 0.24, 1.0);
+
+      // Guest bedroom divider with doorway at z = -1.5
+      addWallBox(group, m.wall, 2.2, -4.1, 0.24, 3.4, 2.0);
+      addWallBox(group, m.wall, 2.2, 1.9, 0.24, 5.6, 2.0);
+
+      // Lounge sofa & Guest bed
+      const loungeSofa = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.5, 1.1), m.fabricCream);
+      loungeSofa.position.set(-0.6, 0.28, -3.5);
+      loungeSofa.castShadow = true;
+      group.add(loungeSofa);
+
+      const guestBed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.55, 2.0), m.fabricTaupe);
+      guestBed.position.set(4.2, 0.3, -2.5);
+      guestBed.castShadow = true;
+      group.add(guestBed);
+
+      return group;
+    }
+
+    // Render 3D Blue Path Ribbon & Directional Arrows along computed A* waypoints
+    function render3DRouteRibbon(pathNodes) {
+      while (routeGroup.children.length > 0) {
+        const obj = routeGroup.children[0];
+        routeGroup.remove(obj);
+      }
+
+      if (!pathNodes || pathNodes.length < 2) return;
+
+      // Only the segment on the visible floor is drawn; a cross-floor route has
+      // two continuous runs that meet at the staircase.
+      const visibleNodes = pathNodes.filter(node => !node.floorId || node.floorId === appState.activeFloor);
+      if (visibleNodes.length < 2) return;
+
+      const points = visibleNodes.map(n => new THREE.Vector3(n.x, 0.14, n.z));
+      // Use smooth polyline with slight corner rounding so it never cuts into walls
+      const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.18);
+
+      const tubeGeo = new THREE.TubeGeometry(curve, 64, 0.095, 12, false);
+      const tubeMat = new THREE.MeshStandardMaterial({
+        color: 0x4D6080,
+        roughness: 0.35,
+        metalness: 0.05
+      });
+      const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+      tubeMesh.castShadow = false;
+      routeGroup.add(tubeMesh);
+
+      // Start circle & Destination target ring
+      const startDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.22, 0.06, 24),
+        new THREE.MeshBasicMaterial({ color: 0x4D6080 })
+      );
+      startDisc.position.copy(points[0]);
+      routeGroup.add(startDisc);
+
+      const endRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.18, 0.32, 24),
+        new THREE.MeshBasicMaterial({ color: 0x4D6080, side: THREE.DoubleSide })
+      );
+      endRing.rotation.x = -Math.PI / 2;
+      endRing.position.set(points[points.length - 1].x, 0.15, points[points.length - 1].z);
+      routeGroup.add(endRing);
+
+      // Directional Chevron Cones along the curve
+      const arrowCount = Math.min(8, Math.max(3, visibleNodes.length + 1));
+      const coneGeo = new THREE.ConeGeometry(0.16, 0.32, 3);
+      coneGeo.rotateX(Math.PI / 2);
+      const coneMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+
+      for (let i = 1; i < arrowCount; i++) {
+        const t = i / arrowCount;
+        const pos = curve.getPointAt(t);
+        const tangent = curve.getTangentAt(t);
+        const arrow = new THREE.Mesh(coneGeo, coneMat);
+        arrow.position.set(pos.x, 0.22, pos.z);
+        arrow.lookAt(pos.x + tangent.x, 0.22, pos.z + tangent.z);
+        routeGroup.add(arrow);
+      }
+
+      routeAnimProgress = appState.prefs.reducedMotion ? 1 : 0;
+    }
+
+    // Project 3D Coordinates to 2D Screen Overlay Pins
+    function updateSpatialPinsOverlay() {
+      const overlay = document.getElementById('spatial-overlay');
+      const container = document.getElementById('three-canvas-container');
+      if (!overlay || !camera || !container) return;
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      // Filter locations for current floor
+      const floorLocs = appState.locations.filter(l => l.floorId === appState.activeFloor);
+      const floorHazards = appState.hazards.filter(h => h.floorId === appState.activeFloor && h.status !== 'Sudah ditangani' && h.status !== 'Tidak relevan');
+
+      let html = '';
+
+      // 1. Location Pill Markers
+      floorLocs.forEach(loc => {
+        const vec = new THREE.Vector3(loc.labelPosition.x, loc.labelPosition.y || 1.3, loc.labelPosition.z);
+        vec.project(camera);
+        if (vec.z > 1) return; // behind camera
+
+        const x = (vec.x * 0.5 + 0.5) * width;
+        const y = (-vec.y * 0.5 + 0.5) * height;
+        if (x < -60 || x > width + 60 || y < -40 || y > height + 40) return;
+
+        const isDest = loc.id === appState.destinationId;
+        const isOrig = loc.id === appState.originId;
+        const isDisconnected = !loc.navigationNodeId;
+
+        const pillBg = isDest
+          ? 'bg-nora-blue text-white border-nora-blue shadow-md'
+          : isOrig
+            ? 'bg-nora-navy text-white border-nora-navy shadow-md'
+            : 'bg-white/95 text-nora-navy border-gray-200/90 shadow-pill hover:border-nora-blue';
+
+        html += `
+          <button type="button"
+                  onclick="handlePinClick('${loc.id}')"
+                  data-pin="loc:${loc.id}"
+                  style="left: ${x.toFixed(1)}px; top: ${y.toFixed(1)}px;"
+                  class="spatial-pin inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap ${pillBg}">
+            <i data-lucide="${loc.iconKey || 'map-pin'}" class="w-3.5 h-3.5 shrink-0"></i>
+            <span>${escapeHtml(loc.name)}</span>
+            ${isDisconnected ? '<span class="w-2 h-2 rounded-full bg-nora-orange" title="Perlu pengaturan jalur"></span>' : ''}
+          </button>
+        `;
+      });
+
+      // 2. Hazard Orange '!' Markers
+      floorHazards.forEach(haz => {
+        const vec = new THREE.Vector3(haz.position.x, haz.position.y || 0.5, haz.position.z);
+        vec.project(camera);
+        if (vec.z > 1) return;
+
+        const x = (vec.x * 0.5 + 0.5) * width;
+        const y = (-vec.y * 0.5 + 0.5) * height;
+        if (x < -40 || x > width + 40 || y < -40 || y > height + 40) return;
+
+        html += `
+          <button type="button"
+                  onclick="openHazardDetail('${haz.id}')"
+                  data-pin="haz:${haz.id}"
+                  style="left: ${x.toFixed(1)}px; top: ${y.toFixed(1)}px;"
+                  aria-label="Potensi hambatan: ${escapeHtml(haz.type)}"
+                  class="hazard-pin hazard-pulse w-8 h-8 rounded-full bg-nora-orange text-white border-2 border-white shadow-md flex items-center justify-center font-bold text-sm">
+            !
+          </button>
+        `;
+      });
+
+      // Only update DOM if markup changed to keep frame rate high
+      if (overlay.dataset.lastHtml !== html) {
+        overlay.innerHTML = html;
+        overlay.dataset.lastHtml = html;
+        lucide.createIcons({ root: overlay });
+      } else {
+        // Position-only sync: match pins by id so out-of-view pins never shift the index.
+        floorLocs.forEach(loc => {
+          const vec = new THREE.Vector3(loc.labelPosition.x, loc.labelPosition.y || 1.3, loc.labelPosition.z);
+          vec.project(camera);
+          if (vec.z > 1) return;
+          const button = overlay.querySelector(`[data-pin="loc:${loc.id}"]`);
+          if (!button) return;
+          button.style.left = `${((vec.x * 0.5 + 0.5) * width).toFixed(1)}px`;
+          button.style.top = `${((-vec.y * 0.5 + 0.5) * height).toFixed(1)}px`;
+        });
+        floorHazards.forEach(haz => {
+          const vec = new THREE.Vector3(haz.position.x, haz.position.y || 0.5, haz.position.z);
+          vec.project(camera);
+          if (vec.z > 1) return;
+          const button = overlay.querySelector(`[data-pin="haz:${haz.id}"]`);
+          if (!button) return;
+          button.style.left = `${((vec.x * 0.5 + 0.5) * width).toFixed(1)}px`;
+          button.style.top = `${((-vec.y * 0.5 + 0.5) * height).toFixed(1)}px`;
+        });
+      }
+    }
+
+    function animateLoop() {
+      requestAnimationFrame(animateLoop);
+      if (!isContextActive || !renderer || !scene || !camera) return;
+
+      // Smooth camera glide animation (650ms)
+      if (cameraAnim) {
+        const now = performance.now();
+        const t = Math.min(1, (now - cameraAnim.startTime) / cameraAnim.duration);
+        const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+        camera.position.lerpVectors(cameraAnim.startPos, cameraAnim.endPos, ease);
+        controls.target.lerpVectors(cameraAnim.startTarget, cameraAnim.endTarget, ease);
+        if (t >= 1) cameraAnim = null;
+      }
+
+      controls.update();
+      updateSpatialPinsOverlay();
+      renderer.render(scene, camera);
+    }
+
+    function smoothFocusCamera(targetX, targetZ, distanceOffset = 6.5) {
+      if (!camera || !controls) return;
+      const endTarget = new THREE.Vector3(targetX, 0.4, targetZ);
+      const endPos = new THREE.Vector3(targetX - distanceOffset * 0.7, 9.8, targetZ + distanceOffset);
+
+      if (appState.prefs.reducedMotion) {
+        camera.position.copy(endPos);
+        controls.target.copy(endTarget);
+        controls.update();
+        return;
+      }
+
+      cameraAnim = {
+        startTime: performance.now(),
+        duration: 720,
+        startPos: camera.position.clone(),
+        endPos,
+        startTarget: controls.target.clone(),
+        endTarget
+      };
+    }
+
+    function resetCameraView() {
+      smoothFocusCamera(0.2, -0.5, 10.5);
+    }
+
+    function zoomCamera(delta) {
+      if (!camera || !controls) return;
+      const offset = camera.position.clone().sub(controls.target);
+      const len = offset.length();
+      const newLen = Math.max(5.5, Math.min(24, len + delta));
+      offset.setLength(newLen);
+      camera.position.copy(controls.target).add(offset);
+      controls.update();
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('three-canvas-container');
+      if (!container || !camera || !renderer) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      syncResponsiveSheetLayout();
+    }
+
+    // =========================================================================
+    // 5. ROUTE CALCULATION, STEP GUIDANCE & INDONESIAN VOICE SYNTHESIS
+    // =========================================================================
+    let routeRequestToken = 0;
+
+    function buildLocalRoute(origin, dest) {
+      const result = findShortestPath(origin.navigationNodeId, dest.navigationNodeId);
+      if (result.status !== 'ok') {
+        return { status: result.status, message: 'Tidak ditemukan jalur yang dapat dilalui antar kedua lokasi.' };
+      }
+      const edgeIds = new Set(result.edges.map(edge => edge.id));
+      const hazardsOnRoute = appState.hazards.filter(hazard =>
+        hazard.status !== 'Sudah ditangani' &&
+        hazard.status !== 'Tidak relevan' &&
+        Array.isArray(hazard.edgeIds) &&
+        hazard.edgeIds.some(id => edgeIds.has(id))
+      );
+      const crossFloor = new Set(result.nodes.map(node => node.floorId)).size > 1;
+      return {
+        status: 'ok',
+        nodes: result.nodes,
+        edges: result.edges,
+        hazardsOnRoute,
+        crossFloor,
+        distance: null
+      };
+    }
+
+    async function recalculateAndRenderRoute() {
+      const origin = appState.locations.find(l => l.id === appState.originId);
+      const dest = appState.locations.find(l => l.id === appState.destinationId);
+
+      const titleEl = document.getElementById('panel-dest-title');
+      const origTextEl = document.getElementById('origin-label-text');
+      const statusBox = document.getElementById('route-status-box');
+      const statusText = document.getElementById('route-status-text');
+      const floorBadge = document.getElementById('route-floor-badge');
+      const guideBtn = document.getElementById('primary-guide-btn');
+
+      const token = ++routeRequestToken;
+
+      origTextEl.textContent = origin ? origin.name : 'Pilih Asal';
+      titleEl.textContent = dest ? `Tujuan: ${dest.name}` : 'Pilih Tujuan';
+
+      // Clear previous 3D route by default
+      render3DRouteRibbon([]);
+      appState.currentPathNodes = [];
+      appState.currentPathEdges = [];
+
+      if (!origin || !dest) {
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-gray-100 text-xs text-nora-muted flex items-center justify-between gap-2';
+        statusText.textContent = 'Pilih lokasi awal dan tujuan untuk melihat rute.';
+        guideBtn.disabled = true;
+        return;
+      }
+
+      floorBadge.textContent = dest.floorId === 'floor-1' ? 'Lantai 1' : 'Lantai 2';
+
+      // Edge Case 1: Origin === Destination
+      if (origin.id === dest.id) {
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-nora-creamLight border border-nora-cream text-xs text-nora-navy flex items-center justify-between gap-2';
+        statusText.textContent = `Anda sudah berada di ${dest.name}. Pilih tujuan lain.`;
+        guideBtn.disabled = true;
+        return;
+      }
+
+      // Edge Case 2: Disconnected Location ("Perlu pengaturan jalur")
+      if (!origin.navigationNodeId || !dest.navigationNodeId) {
+        const missingLoc = !dest.navigationNodeId ? dest : origin;
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-nora-orangeSoft border border-nora-orange/30 text-xs text-nora-navy flex items-center justify-between gap-2';
+        statusText.innerHTML = `<strong>Perlu pengaturan jalur:</strong> "${escapeHtml(missingLoc.name)}" belum terhubung ke titik lantai.`;
+        guideBtn.disabled = true;
+        return;
+      }
+
+      // Ask the backend first; fall back to the local graph when offline.
+      let route = null;
+      if (API.online) {
+        try {
+          route = await apiFetch('/api/navigation/route', {
+            method: 'POST',
+            ...jsonBody({ originLocationId: origin.id, destinationLocationId: dest.id }),
+            timeoutMs: 8000
+          });
+        } catch (error) {
+          route = null;
+        }
+        if (token !== routeRequestToken) return;
+      }
+      if (!route || route.status !== 'ok' || !Array.isArray(route.nodes) || route.nodes.length < 2) {
+        route = buildLocalRoute(origin, dest);
+      }
+      if (!route || route.status !== 'ok') {
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-nora-orangeSoft border border-nora-orange/30 text-xs text-nora-navy flex items-center justify-between gap-2';
+        statusText.textContent = 'Tidak ditemukan jalur yang dapat dilalui antar kedua lokasi.';
+        guideBtn.disabled = true;
+        return;
+      }
+
+      appState.currentPathNodes = route.nodes;
+      appState.currentPathEdges = route.edges;
+
+      // Switch floor if needed and render the 3D path ribbon for the visible floor
+      if (appState.activeFloor !== dest.floorId) {
+        selectFloor(dest.floorId, false);
+      }
+      render3DRouteRibbon(route.nodes);
+
+      const hazardCount = Array.isArray(route.hazardsOnRoute) ? route.hazardsOnRoute.length : 0;
+      const crossFloor = route.crossFloor === true || new Set(route.nodes.map(node => node.floorId)).size > 1;
+
+      if (hazardCount > 0) {
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-nora-orangeSoft border border-nora-orange/30 text-xs text-nora-navy flex items-center justify-between gap-2';
+      } else {
+        statusBox.className = 'px-3.5 py-2.5 rounded-xl bg-nora-creamLight border border-nora-cream text-xs text-nora-navy flex items-center justify-between gap-2';
+      }
+      statusText.textContent = crossFloor
+        ? `Rute antar-lantai via tangga • ${route.edges.length} segmen menuju ${dest.name}`
+        : `Jalur tersedia • ${route.edges.length} segmen menuju ${dest.name}`;
+      if (hazardCount > 0) {
+        statusText.textContent += ` • ${hazardCount} potensi hambatan pada jalur`;
+      }
+      guideBtn.disabled = false;
+
+      if (appState.guidanceActive) {
+        appState.guidanceStepIndex = 0;
+        updateGuidanceStepUI();
+      }
+    }
+
+    function startStepGuidance() {
+      const origin = appState.locations.find(l => l.id === appState.originId);
+      const dest = appState.locations.find(l => l.id === appState.destinationId);
+      if (!origin || !dest || appState.currentPathEdges.length === 0) return;
+
+      appState.guidanceActive = true;
+      appState.guidanceStepIndex = 0;
+      document.getElementById('guidance-stepper-card').classList.remove('hidden');
+      setSheetState('expanded');
+      updateGuidanceStepUI();
+
+      saveHistory({
+        type: 'route',
+        title: `Panduan Rute: ${origin.name} → ${dest.name}`,
+        detail: `${appState.currentPathEdges.length} segmen langkah pada ${dest.floorId === 'floor-1' ? 'Lantai 1' : 'Lantai 2'}`
+      });
+    }
+
+    function stopStepGuidance() {
+      appState.guidanceActive = false;
+      document.getElementById('guidance-stepper-card').classList.add('hidden');
+      stopSpeech();
+    }
+
+    function updateGuidanceStepUI() {
+      const edges = appState.currentPathEdges;
+      const nodes = appState.currentPathNodes;
+      const dest = appState.locations.find(l => l.id === appState.destinationId);
+      if (!edges.length) return;
+
+      const idx = appState.guidanceStepIndex;
+      const total = edges.length;
+      document.getElementById('step-counter-text').textContent = `Langkah ${idx + 1} dari ${total}`;
+
+      let instruction = edges[idx].instruction;
+      if (idx === total - 1 && dest) {
+        instruction += ` Anda tiba di tujuan: ${dest.name}.`;
+      }
+      document.getElementById('step-instruction-text').textContent = instruction;
+
+      document.getElementById('btn-prev-step').disabled = idx === 0;
+      document.getElementById('btn-next-step').textContent = idx === total - 1 ? 'Selesai' : 'Langkah Berikutnya';
+
+      // Gently frame the waypoint node in 3D
+      const targetNode = nodes[Math.min(idx + 1, nodes.length - 1)];
+      if (targetNode) {
+        if (targetNode.floorId && targetNode.floorId !== appState.activeFloor) {
+          selectFloor(targetNode.floorId, false);
+          render3DRouteRibbon(appState.currentPathNodes);
+        }
+        smoothFocusCamera(targetNode.x, targetNode.z, 6.2);
+      }
+    }
+
+    function nextGuidanceStep() {
+      if (appState.guidanceStepIndex < appState.currentPathEdges.length - 1) {
+        appState.guidanceStepIndex++;
+        updateGuidanceStepUI();
+        if (appState.isSpeaking) speakCurrentStep();
+      } else {
+        showToast('Preview panduan rute selesai.');
+        stopStepGuidance();
+      }
+    }
+
+    function prevGuidanceStep() {
+      if (appState.guidanceStepIndex > 0) {
+        appState.guidanceStepIndex--;
+        updateGuidanceStepUI();
+        if (appState.isSpeaking) speakCurrentStep();
+      }
+    }
+
+    // Indonesian Voice Guidance (User-triggered only, never auto-plays on load)
+    function toggleVoiceGuidance() {
+      if (appState.isSpeaking) {
+        stopSpeech();
+        return;
+      }
+      if (!appState.guidanceActive && appState.currentPathEdges.length > 0) {
+        startStepGuidance();
+      }
+      speakCurrentStep();
+    }
+
+    function speakCurrentStep() {
+      if (!('speechSynthesis' in window)) {
+        showToast('Browser tidak mendukung panduan suara.', 'warning');
+        return;
+      }
+      window.speechSynthesis.cancel();
+
+      const dest = appState.locations.find(l => l.id === appState.destinationId);
+      const origin = appState.locations.find(l => l.id === appState.originId);
+      let textToSpeak = '';
+
+      if (appState.guidanceActive && appState.currentPathEdges[appState.guidanceStepIndex]) {
+        textToSpeak = document.getElementById('step-instruction-text').textContent;
+      } else if (origin && dest && appState.currentPathEdges.length > 0) {
+        textToSpeak = `Panduan dari ${origin.name} menuju ${dest.name}. ${appState.currentPathEdges[0].instruction}`;
+      } else {
+        textToSpeak = 'Silakan pilih lokasi awal dan tujuan yang terhubung terlebih dahulu.';
+      }
+
+      const utter = new SpeechSynthesisUtterance(textToSpeak);
+      utter.lang = 'id-ID';
+      utter.rate = 0.94;
+      utter.onstart = () => {
+        appState.isSpeaking = true;
+        document.getElementById('voice-guide-btn').classList.add('bg-nora-blue', 'text-white');
+      };
+      utter.onend = utter.onerror = () => {
+        appState.isSpeaking = false;
+        document.getElementById('voice-guide-btn').classList.remove('bg-nora-blue', 'text-white');
+      };
+
+      window.speechSynthesis.speak(utter);
+    }
+
+    function stopSpeech() {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      appState.isSpeaking = false;
+      const btn = document.getElementById('voice-guide-btn');
+      if (btn) btn.classList.remove('bg-nora-blue', 'text-white');
+    }
+
+    // =========================================================================
+    // 6. DYNAMIC LOCATION MANAGEMENT (CRUD + AUTO-ICON + 3D PLACEMENT)
+    // =========================================================================
+    function renderDestinationCards() {
+      const container = document.getElementById('destination-cards-row');
+      if (!container) return;
+
+      // Show locations on active floor first (excluding current origin if possible), up to 3 quick cards, plus full search access
+      const candidates = appState.locations.filter(l => l.id !== appState.originId);
+      const floorSorted = [
+        ...candidates.filter(l => l.floorId === appState.activeFloor),
+        ...candidates.filter(l => l.floorId !== appState.activeFloor)
+      ].slice(0, 3);
+
+      container.innerHTML = floorSorted.map(loc => {
+        const isSelected = loc.id === appState.destinationId;
+        const isDisconnected = !loc.navigationNodeId;
+        return `
+          <button type="button"
+                  onclick="selectDestination('${loc.id}')"
+                  class="relative flex flex-col items-center justify-center p-3 rounded-2xl border transition min-h-[82px] text-center ${
+                    isSelected
+                      ? 'bg-nora-blueSoft border-nora-blue text-nora-navy shadow-xs'
+                      : 'bg-white border-gray-200/90 hover:border-nora-blue/50 text-nora-navy'
+                  }">
+            <div class="w-9 h-9 rounded-xl ${isSelected ? 'bg-nora-blue text-white' : 'bg-nora-creamLight text-nora-navy'} flex items-center justify-center mb-1.5">
+              <i data-lucide="${loc.iconKey || 'map-pin'}" class="w-4 h-4"></i>
+            </div>
+            <span class="text-xs font-semibold leading-tight line-clamp-1 w-full">${escapeHtml(loc.name)}</span>
+            ${isDisconnected ? '<span class="mt-1 text-[10px] font-medium text-nora-orange">Perlu jalur</span>' : ''}
+          </button>
+        `;
+      }).join('');
+
+      lucide.createIcons({ root: container });
+    }
+
+    function selectDestination(locId) {
+      const loc = appState.locations.find(l => l.id === locId);
+      if (!loc) return;
+      appState.destinationId = loc.id;
+      if (loc.floorId !== appState.activeFloor) {
+        selectFloor(loc.floorId, false);
+      }
+      renderDestinationCards();
+      recalculateAndRenderRoute();
+      renderHazardsUI();
+      smoothFocusCamera(loc.labelPosition.x, loc.labelPosition.z, 7.2);
+    }
+
+    function handlePinClick(locId) {
+      if (locId === appState.originId) {
+        showToast('Lokasi ini sedang dipilih sebagai Lokasi Awal.');
+        return;
+      }
+      selectDestination(locId);
+    }
+
+    function swapOriginDestination() {
+      const temp = appState.originId;
+      appState.originId = appState.destinationId;
+      appState.destinationId = temp;
+      renderDestinationCards();
+      recalculateAndRenderRoute();
+      renderHazardsUI();
+    }
+
+    function openOriginSelectorModal() {
+      const modal = document.getElementById('origin-modal');
+      const list = document.getElementById('origin-options-list');
+      list.innerHTML = appState.locations.map(loc => {
+        const isCurrent = loc.id === appState.originId;
+        const floorName = loc.floorId === 'floor-1' ? 'Lantai 1' : 'Lantai 2';
+        return `
+          <button type="button" onclick="setOriginLocation('${loc.id}')" class="w-full flex items-center justify-between p-3 rounded-2xl border ${isCurrent ? 'border-nora-blue bg-nora-blueSoft/60' : 'border-gray-200 hover:bg-gray-50'} text-left transition">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-nora-creamLight text-nora-navy flex items-center justify-center">
+                <i data-lucide="${loc.iconKey || 'map-pin'}" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-nora-navy">${escapeHtml(loc.name)}</p>
+                <p class="text-xs text-nora-muted">${floorName} ${!loc.navigationNodeId ? '• Perlu pengaturan jalur' : ''}</p>
+              </div>
+            </div>
+            ${isCurrent ? '<span class="text-xs font-bold text-nora-blue">Aktif</span>' : ''}
+          </button>
+        `;
+      }).join('');
+      lucide.createIcons({ root: list });
+      modal.classList.remove('hidden');
+    }
+
+    function closeOriginSelectorModal() {
+      document.getElementById('origin-modal').classList.add('hidden');
+    }
+
+    function setOriginLocation(locId) {
+      appState.originId = locId;
+      const loc = appState.locations.find(l => l.id === locId);
+      if (loc && loc.floorId !== appState.activeFloor) {
+        selectFloor(loc.floorId, false);
+      }
+      closeOriginSelectorModal();
+      renderDestinationCards();
+      recalculateAndRenderRoute();
+      renderHazardsUI();
+    }
+
+    function toggleLocationManager(open) {
+      document.getElementById('panel-nav-view').classList.toggle('hidden', open);
+      document.getElementById('panel-hazards-view').classList.add('hidden');
+      document.getElementById('panel-locations-view').classList.toggle('hidden', !open);
+      if (open) {
+        setSheetState('expanded');
+        renderAllLocationsList();
+      }
+    }
+
+    function renderAllLocationsList() {
+      const container = document.getElementById('all-locations-list');
+      const query = (document.getElementById('location-search-input').value || '').toLowerCase().trim();
+      const floorFilter = document.getElementById('location-floor-filter').value;
+
+      const filtered = appState.locations.filter(loc => {
+        const matchesQuery = loc.name.toLowerCase().includes(query);
+        const matchesFloor = floorFilter === 'all' || loc.floorId === floorFilter;
+        return matchesQuery && matchesFloor;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="text-xs text-nora-muted text-center py-6">Tidak ada lokasi yang cocok dengan pencarian.</p>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(loc => {
+        const floorText = loc.floorId === 'floor-1' ? 'Lantai 1' : 'Lantai 2';
+        const connectedNode = NAVIGATION_GRAPH.nodes.find(n => n.id === loc.navigationNodeId);
+        return `
+          <div class="p-3.5 rounded-2xl border border-gray-200 bg-white space-y-2.5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-nora-creamLight text-nora-navy flex items-center justify-center shrink-0">
+                  <i data-lucide="${loc.iconKey || 'map-pin'}" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                  <p class="text-sm font-bold text-nora-navy truncate">${escapeHtml(loc.name)}</p>
+                  <p class="text-xs text-nora-muted">${floorText} • ${CATEGORY_CONFIG[loc.category]?.label || 'Lokasi'}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button onclick="openEditLocationModal('${loc.id}')" class="w-9 h-9 rounded-xl hover:bg-gray-100 flex items-center justify-center text-nora-navy" title="Edit Lokasi" aria-label="Edit ${escapeHtml(loc.name)}">
+                  <i data-lucide="pencil" class="w-4 h-4"></i>
+                </button>
+                <button onclick="confirmDeleteLocation('${loc.id}')" class="w-9 h-9 rounded-xl hover:bg-nora-orangeSoft flex items-center justify-center text-nora-orange" title="Hapus Lokasi" aria-label="Hapus ${escapeHtml(loc.name)}">
+                  <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs pt-1 border-t border-gray-100">
+              ${
+                connectedNode
+                  ? `<span class="text-nora-blue font-medium flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Terhubung: ${escapeHtml(connectedNode.name)}</span>`
+                  : `<span class="text-nora-orange font-semibold flex items-center gap-1"><i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Perlu pengaturan jalur</span>`
+              }
+              <div class="flex items-center gap-1.5">
+                <button onclick="setOriginLocation('${loc.id}'); toggleLocationManager(false);" class="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 font-semibold text-nora-navy">Jadi Asal</button>
+                <button onclick="selectDestination('${loc.id}'); toggleLocationManager(false);" class="px-2.5 py-1 rounded-lg bg-nora-blueSoft hover:bg-nora-blue hover:text-white font-semibold text-nora-blue transition">Jadi Tujuan</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      lucide.createIcons({ root: container });
+    }
+
+    // --- Add / Edit Location Form & Smart Auto-Icon ---
+    function openAddLocationModal() {
+      document.getElementById('loc-modal-title').textContent = 'Tambah Lokasi Baru';
+      document.getElementById('loc-edit-id').value = '';
+      document.getElementById('loc-name-input').value = '';
+      document.getElementById('loc-category-select').value = 'bedroom';
+      document.getElementById('loc-floor-select').value = appState.activeFloor;
+      document.getElementById('loc-pos-x').value = '0.0';
+      document.getElementById('loc-pos-z').value = '0.0';
+      document.getElementById('category-suggestion-hint').classList.add('hidden');
+      document.getElementById('loc-photo-preview').classList.add('hidden');
+      document.getElementById('loc-photo-status').textContent = 'Belum ada foto';
+
+      appState.iconManuallyChosen = false;
+      appState.selectedIconKey = CATEGORY_CONFIG.bedroom.icon;
+      appState.tempPhotoDataUrl = null;
+      document.getElementById('icon-lock-badge').textContent = 'Otomatis sesuai kategori';
+
+      renderIconPickerGrid();
+      populateAccessNodesDropdown('');
+      document.getElementById('location-modal').classList.remove('hidden');
+    }
+
+    function openEditLocationModal(locId) {
+      const loc = appState.locations.find(l => l.id === locId);
+      if (!loc) return;
+
+      document.getElementById('loc-modal-title').textContent = 'Edit Lokasi';
+      document.getElementById('loc-edit-id').value = loc.id;
+      document.getElementById('loc-name-input').value = loc.name;
+      document.getElementById('loc-category-select').value = loc.category || 'other';
+      document.getElementById('loc-floor-select').value = loc.floorId;
+      document.getElementById('loc-pos-x').value = loc.labelPosition.x;
+      document.getElementById('loc-pos-z').value = loc.labelPosition.z;
+      document.getElementById('category-suggestion-hint').classList.add('hidden');
+
+      // Lock user's existing icon when editing name so it doesn't override unexpectedly
+      appState.iconManuallyChosen = true;
+      appState.selectedIconKey = loc.iconKey || 'map-pin';
+      appState.tempPhotoDataUrl = loc.photo || null;
+      document.getElementById('icon-lock-badge').textContent = 'Ikon tersimpan (dapat diganti)';
+
+      const previewImg = document.getElementById('loc-photo-preview');
+      if (loc.photo) {
+        previewImg.src = loc.photo;
+        previewImg.classList.remove('hidden');
+        document.getElementById('loc-photo-status').textContent = 'Foto terpasang';
+      } else {
+        previewImg.classList.add('hidden');
+        document.getElementById('loc-photo-status').textContent = 'Belum ada foto';
+      }
+
+      renderIconPickerGrid();
+      populateAccessNodesDropdown(loc.navigationNodeId || '');
+      document.getElementById('location-modal').classList.remove('hidden');
+    }
+
+    function closeLocationModal() {
+      document.getElementById('location-modal').classList.add('hidden');
+    }
+
+    function handleLocationNameInput(val) {
+      const editId = document.getElementById('loc-edit-id').value;
+      if (editId) return; // Do not override category/icon when renaming an existing location
+
+      const lower = val.toLowerCase().trim();
+      const hintEl = document.getElementById('category-suggestion-hint');
+      if (!lower) {
+        hintEl.classList.add('hidden');
+        return;
+      }
+
+      let matchedKey = null;
+      for (const [catKey, cfg] of Object.entries(CATEGORY_CONFIG)) {
+        if (cfg.keywords.some(kw => lower.includes(kw))) {
+          matchedKey = catKey;
+          break;
+        }
+      }
+
+      if (matchedKey) {
+        document.getElementById('loc-category-select').value = matchedKey;
+        hintEl.textContent = `Saran kategori otomatis: ${CATEGORY_CONFIG[matchedKey].label}`;
+        hintEl.classList.remove('hidden');
+        if (!appState.iconManuallyChosen) {
+          appState.selectedIconKey = CATEGORY_CONFIG[matchedKey].icon;
+          renderIconPickerGrid();
+        }
+      } else {
+        hintEl.classList.add('hidden');
+      }
+    }
+
+    function handleCategoryChange(catKey) {
+      if (!appState.iconManuallyChosen && CATEGORY_CONFIG[catKey]) {
+        appState.selectedIconKey = CATEGORY_CONFIG[catKey].icon;
+        renderIconPickerGrid();
+      }
+    }
+
+    function selectCustomIcon(iconKey) {
+      appState.iconManuallyChosen = true;
+      appState.selectedIconKey = iconKey;
+      document.getElementById('icon-lock-badge').textContent = 'Dipilih manual oleh pengguna';
+      renderIconPickerGrid();
+    }
+
+    function renderIconPickerGrid() {
+      const grid = document.getElementById('icon-picker-grid');
+      grid.innerHTML = AVAILABLE_ICONS.map(item => {
+        const active = item.key === appState.selectedIconKey;
+        return `
+          <button type="button"
+                  onclick="selectCustomIcon('${item.key}')"
+                  title="${item.label}"
+                  aria-label="${item.label}"
+                  class="h-11 rounded-xl border flex items-center justify-center transition ${
+                    active ? 'bg-nora-blue text-white border-nora-blue shadow-xs' : 'bg-white border-gray-200 text-nora-navy hover:bg-gray-50'
+                  }">
+            <i data-lucide="${item.key}" class="w-4 h-4"></i>
+          </button>
+        `;
+      }).join('');
+      lucide.createIcons({ root: grid });
+    }
+
+    function populateAccessNodesDropdown(selectedNodeId = '') {
+      const floorId = document.getElementById('loc-floor-select').value;
+      const select = document.getElementById('loc-access-node-select');
+      const floorNodes = NAVIGATION_GRAPH.nodes.filter(n => n.floorId === floorId);
+
+      select.innerHTML = `
+        <option value="">-- Belum dihubungkan (Status: Perlu pengaturan jalur) --</option>
+        ${floorNodes.map(n => `<option value="${n.id}" ${n.id === selectedNodeId ? 'selected' : ''}>${escapeHtml(n.name)} (${n.x}, ${n.z})</option>`).join('')}
+      `;
+    }
+
+    // Interactive 3D Floor Raycasting to Place Location Pin
+    function trigger3DPinPlacement() {
+      const chosenFloor = document.getElementById('loc-floor-select').value;
+      if (appState.activeFloor !== chosenFloor) {
+        selectFloor(chosenFloor, false);
+      }
+      document.getElementById('location-modal').classList.add('hidden');
+      appState.placementMode = true;
+      placementMarkerMesh.visible = true;
+      document.getElementById('placement-banner').classList.remove('hidden');
+      showToast('Ketuk lantai pada model 3D untuk menaruh pin.');
+    }
+
+    function cancelPlacementMode() {
+      appState.placementMode = false;
+      placementMarkerMesh.visible = false;
+      document.getElementById('placement-banner').classList.add('hidden');
+      document.getElementById('location-modal').classList.remove('hidden');
+    }
+
+    function handleCanvasPointerDown(event) {
+      if (!appState.placementMode || !floorPlaneRaycasterMesh) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointerVec, camera);
+      const hits = raycaster.intersectObject(floorPlaneRaycasterMesh);
+
+      if (hits.length > 0) {
+        const pt = hits[0].point;
+        const clampedX = Math.max(-6.2, Math.min(6.2, Number(pt.x.toFixed(2))));
+        const clampedZ = Math.max(-6.8, Math.min(6.4, Number(pt.z.toFixed(2))));
+
+        document.getElementById('loc-pos-x').value = clampedX;
+        document.getElementById('loc-pos-z').value = clampedZ;
+        placementMarkerMesh.position.set(clampedX, 0.08, clampedZ);
+
+        // Suggest nearest walkable floor access node automatically
+        const floorId = document.getElementById('loc-floor-select').value;
+        const floorNodes = NAVIGATION_GRAPH.nodes.filter(n => n.floorId === floorId);
+        let nearest = null;
+        let minDist = Infinity;
+        floorNodes.forEach(n => {
+          const d = Math.hypot(n.x - clampedX, n.z - clampedZ);
+          if (d < minDist) {
+            minDist = d;
+            nearest = n;
+          }
+        });
+        if (nearest && minDist < 3.5) {
+          document.getElementById('loc-access-node-select').value = nearest.id;
+        }
+
+        setTimeout(() => {
+          appState.placementMode = false;
+          placementMarkerMesh.visible = false;
+          document.getElementById('placement-banner').classList.add('hidden');
+          document.getElementById('location-modal').classList.remove('hidden');
+          showToast(`Titik pin ditempatkan pada (${clampedX}, ${clampedZ})`);
+        }, 220);
+      }
+    }
+
+    function applyPhotoPreview(src, label) {
+      const preview = document.getElementById('loc-photo-preview');
+      if (preview) {
+        preview.src = src || '';
+        preview.classList.toggle('hidden', !src);
+      }
+      const status = document.getElementById('loc-photo-status');
+      if (status) status.textContent = label;
+    }
+
+    async function handleLocationPhotoUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      if (API.online) {
+        try {
+          const form = new FormData();
+          form.append('file', file, file.name);
+          const uploaded = await apiFetch('/api/uploads/photo', {
+            method: 'POST',
+            body: form,
+            timeoutMs: 30000
+          });
+          if (uploaded && uploaded.url) {
+            appState.tempPhotoDataUrl = uploaded.url;
+            applyPhotoPreview(uploaded.url, file.name);
+            showToast('Foto diunggah ke server.');
+            return;
+          }
+        } catch (error) {
+          showToast('Unggah ke server gagal, memakai penyimpanan lokal.', 'warning');
+        }
+      }
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        // Resize local fallback so localStorage stays lean
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxW = 480;
+          const scale = Math.min(1, maxW / img.width);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          appState.tempPhotoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          applyPhotoPreview(appState.tempPhotoDataUrl, file.name);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function upsertLocationLocal(location) {
+      const index = appState.locations.findIndex(l => l.id === location.id);
+      if (index === -1) appState.locations.push(location);
+      else appState.locations[index] = location;
+    }
+
+    async function saveLocationForm(event) {
+      event.preventDefault();
+      const editId = document.getElementById('loc-edit-id').value;
+      const name = document.getElementById('loc-name-input').value.trim();
+      if (!name) return;
+
+      const category = document.getElementById('loc-category-select').value;
+      const floorId = document.getElementById('loc-floor-select').value;
+      const x = parseFloat(document.getElementById('loc-pos-x').value) || 0;
+      const z = parseFloat(document.getElementById('loc-pos-z').value) || 0;
+      const navigationNodeId = document.getElementById('loc-access-node-select').value || null;
+      const nowIso = new Date().toISOString();
+      const payload = {
+        name,
+        category,
+        floorId,
+        iconKey: appState.selectedIconKey,
+        labelPosition: { x, y: 1.4, z },
+        navigationNodeId: navigationNodeId,
+        photo: appState.tempPhotoDataUrl || null
+      };
+
+      let saved = null;
+      let serverError = null;
+      if (API.online) {
+        try {
+          saved = editId
+            ? await apiFetch('/api/locations/' + encodeURIComponent(editId), {
+                method: 'PATCH',
+                ...jsonBody(payload)
+              })
+            : await apiFetch('/api/locations', {
+                method: 'POST',
+                ...jsonBody(payload)
+              });
+        } catch (error) {
+          serverError = error.message;
+        }
+      }
+
+      if (saved && saved.id) {
+        upsertLocationLocal(saved);
+        if (!editId) {
+          appState.destinationId = saved.id;
+          if (appState.activeFloor !== saved.floorId) selectFloor(saved.floorId, false);
+          smoothFocusCamera(saved.labelPosition.x, saved.labelPosition.z, 7.0);
+        }
+        showToast(editId ? `Lokasi "${saved.name}" diperbarui.` : `Lokasi "${saved.name}" ditambahkan.`);
+        refreshHistory();
+      } else if (editId) {
+        const idx = appState.locations.findIndex(l => l.id === editId);
+        if (idx !== -1) {
+          appState.locations[idx] = {
+            ...appState.locations[idx],
+            name,
+            category,
+            floorId,
+            iconKey: appState.selectedIconKey,
+            labelPosition: { x, y: 1.4, z },
+            navigationNodeId,
+            photo: appState.tempPhotoDataUrl,
+            verificationStatus: navigationNodeId ? 'verified' : 'needs_path',
+            updatedAt: nowIso
+          };
+        }
+        saveLocations();
+        if (serverError) showToast(`Server error — "${name}" disimpan lokal.`, 'warning');
+        else showToast(`Lokasi "${name}" diperbarui.`);
+      } else {
+        const newLoc = {
+          id: 'loc_' + Date.now(),
+          homeId: 'home_demo_1',
+          floorId,
+          name,
+          category,
+          iconKey: appState.selectedIconKey,
+          labelPosition: { x, y: 1.4, z },
+          navigationNodeId,
+          photo: appState.tempPhotoDataUrl,
+          verificationStatus: navigationNodeId ? 'verified' : 'needs_path',
+          createdAt: nowIso,
+          updatedAt: nowIso
+        };
+        appState.locations.push(newLoc);
+        appState.destinationId = newLoc.id;
+        if (appState.activeFloor !== floorId) selectFloor(floorId, false);
+        smoothFocusCamera(x, z, 7.0);
+        saveLocations();
+        if (serverError) {
+          showToast(`Server error — "${name}" disimpan lokal.`, 'warning');
+        } else {
+          showToast(navigationNodeId ? `Lokasi "${name}" ditambahkan.` : `"${name}" disimpan (Perlu pengaturan jalur).`);
+        }
+      }
+
+      closeLocationModal();
+      renderDestinationCards();
+      renderAllLocationsList();
+      recalculateAndRenderRoute();
+      renderHazardsUI();
+    }
+
+    function confirmDeleteLocation(locId) {
+      const loc = appState.locations.find(l => l.id === locId);
+      if (!loc) return;
+      openConfirmModal(
+        `Hapus "${loc.name}"?`,
+        'Lokasi ini akan dihapus dari daftar asal dan tujuan navigasi.',
+        async () => {
+          if (API.online) {
+            try {
+              await apiFetch('/api/locations/' + encodeURIComponent(locId), { method: 'DELETE' });
+            } catch (error) {
+              showToast('Gagal menghapus lokasi di server: ' + (error.message || 'kesalahan server'), 'warning');
+              return;
+            }
+          }
+          appState.locations = appState.locations.filter(l => l.id !== locId);
+          if (appState.originId === locId) appState.originId = appState.locations[0]?.id || null;
+          if (appState.destinationId === locId) appState.destinationId = appState.locations[1]?.id || null;
+          if (API.online) refreshHistory();
+          else saveLocations();
+          renderDestinationCards();
+          renderAllLocationsList();
+          recalculateAndRenderRoute();
+          showToast(`Lokasi "${loc.name}" telah dihapus.`);
+        }
+      );
+    }
+
+    // =========================================================================
+    // 7. ROUTE-RELEVANT HAZARDS REVIEW & VERIFICATION
+    // =========================================================================
+    function renderHazardsUI() {
+      const activeFloorHazards = appState.hazards.filter(
+        h => h.floorId === appState.activeFloor && h.status !== 'Sudah ditangani' && h.status !== 'Tidak relevan'
+      );
+
+      const pill = document.getElementById('hazard-summary-pill');
+      const pillText = document.getElementById('hazard-summary-text');
+
+      if (activeFloorHazards.length > 0) {
+        pill.classList.remove('hidden');
+        pillText.textContent = `${activeFloorHazards.length} potensi hambatan`;
+      } else {
+        pill.classList.remove('hidden');
+        pillText.textContent = '0 hambatan aktif (hasil scan)';
+      }
+
+      // Desktop mini list
+      const desktopMini = document.getElementById('desktop-hazard-mini-list');
+      if (desktopMini) {
+        desktopMini.innerHTML = appState.hazards
+          .filter(h => h.floorId === appState.activeFloor)
+          .map(h => `
+            <button type="button" onclick="openHazardDetail('${h.id}')" class="w-full flex items-center justify-between p-2.5 rounded-xl border border-gray-200/90 hover:border-nora-orange/60 bg-white text-left transition">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-2.5 h-2.5 rounded-full ${h.status === 'Sudah ditangani' || h.status === 'Tidak relevan' ? 'bg-gray-300' : 'bg-nora-orange'} shrink-0"></span>
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold text-nora-navy truncate">${escapeHtml(h.type)}</p>
+                  <p class="text-[11px] text-nora-muted truncate">${escapeHtml(h.locationName)}</p>
+                </div>
+              </div>
+              <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                h.status === 'Sudah ditangani' ? 'bg-green-50 text-green-700' : 'bg-nora-orangeSoft text-nora-orange'
+              } shrink-0">${escapeHtml(h.status)}</span>
+            </button>
+          `).join('');
+      }
+
+      // Full Hazard Verification Cards
+      const cardsContainer = document.getElementById('hazard-cards-container');
+      if (cardsContainer) {
+        cardsContainer.innerHTML = appState.hazards
+          .filter(h => h.floorId === appState.activeFloor)
+          .map(h => {
+            const statuses = ['Perlu diperiksa', 'Dikonfirmasi', 'Tidak relevan', 'Sudah ditangani'];
+            return `
+              <div id="hazard-card-${h.id}" class="p-4 rounded-2xl border border-gray-200 bg-white space-y-3">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex items-center gap-2.5">
+                    <span class="w-8 h-8 rounded-xl bg-nora-orangeSoft text-nora-orange flex items-center justify-center font-bold">!</span>
+                    <div>
+                      <h4 class="text-sm font-bold text-nora-navy">${escapeHtml(h.type)}</h4>
+                      <p class="text-xs text-nora-muted">${escapeHtml(h.locationName)} • ${escapeHtml(h.scannedAt)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <p class="text-xs text-nora-navy leading-relaxed">${escapeHtml(h.description)}</p>
+
+                <div class="p-2.5 rounded-xl bg-nora-blueSoft/60 text-xs text-nora-navy">
+                  <strong>Rekomendasi:</strong> ${escapeHtml(h.recommendation)}
+                </div>
+
+                <div>
+                  <span class="block text-[11px] font-semibold text-nora-muted uppercase tracking-wider mb-1.5">Status Verifikasi Pendamping</span>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    ${statuses.map(st => `
+                      <button type="button"
+                              onclick="updateHazardStatus('${h.id}', '${st}')"
+                              class="py-2 px-2.5 rounded-xl border text-xs font-semibold transition ${
+                                h.status === st
+                                  ? 'bg-nora-blue text-white border-nora-blue'
+                                  : 'bg-white border-gray-200 text-nora-navy hover:bg-gray-50'
+                              }">
+                        ${st}
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+      }
+    }
+
+    function openHazardListView() {
+      document.getElementById('panel-nav-view').classList.add('hidden');
+      document.getElementById('panel-locations-view').classList.add('hidden');
+      document.getElementById('panel-hazards-view').classList.remove('hidden');
+      setSheetState('expanded');
+      renderHazardsUI();
+    }
+
+    function closeHazardListView() {
+      document.getElementById('panel-hazards-view').classList.add('hidden');
+      document.getElementById('panel-nav-view').classList.remove('hidden');
+    }
+
+    function openHazardDetail(hazardId) {
+      const haz = appState.hazards.find(h => h.id === hazardId);
+      if (haz) {
+        smoothFocusCamera(haz.position.x, haz.position.z, 5.8);
+      }
+      openHazardListView();
+      setTimeout(() => {
+        const el = document.getElementById('hazard-card-' + hazardId);
+        if (el) el.scrollIntoView({ behavior: appState.prefs.reducedMotion ? 'auto' : 'smooth', block: 'center' });
+      }, 120);
+    }
+
+    async function updateHazardStatus(hazardId, newStatus) {
+      const haz = appState.hazards.find(h => h.id === hazardId);
+      if (!haz) return;
+
+      if (API.online) {
+        try {
+          const updated = await apiFetch('/api/hazards/' + encodeURIComponent(hazardId), {
+            method: 'PATCH',
+            ...jsonBody({ status: newStatus })
+          });
+          if (updated && updated.id) {
+            const index = appState.hazards.findIndex(h => h.id === updated.id);
+            if (index !== -1) appState.hazards[index] = updated;
+          }
+        } catch (error) {
+          showToast('Gagal memperbarui status di server: ' + (error.message || 'kesalahan server'), 'warning');
+          return;
+        }
+      } else {
+        haz.status = newStatus;
+        saveHazards();
+      }
+
+      renderHazardsUI();
+      saveHistory({
+        type: 'hazard',
+        title: `Verifikasi Hambatan: ${haz.type}`,
+        detail: `${haz.locationName} → Status diubah menjadi "${newStatus}"`
+      });
+      showToast(`Status hambatan diperbarui: ${newStatus}`);
+    }
+
+    // =========================================================================
+    // 8. FLOOR SELECTION, TABS & MOBILE 3-STATE BOTTOM SHEET
+    // =========================================================================
+    function selectFloor(floorId, refocus = true) {
+      appState.activeFloor = floorId;
+      if (floor1Group) floor1Group.visible = floorId === 'floor-1';
+      if (floor2Group) floor2Group.visible = floorId === 'floor-2';
+
+      document.querySelectorAll('.floor-btn').forEach(btn => {
+        const active = btn.id === 'btn-' + floorId;
+        btn.className = active
+          ? 'floor-btn px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors bg-nora-blue text-white min-h-[34px]'
+          : 'floor-btn px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors text-nora-navy hover:bg-gray-100 min-h-[34px]';
+      });
+
+      renderDestinationCards();
+      renderHazardsUI();
+      if (refocus) resetCameraView();
+    }
+
+    function switchTab(tabName) {
+      appState.activeTab = tabName;
+      ['rumah', 'pindai', 'riwayat'].forEach(t => {
+        document.getElementById('view-' + t).classList.toggle('hidden', t !== tabName);
+      });
+
+      // Update Mobile Bottom Nav & Desktop Top Nav
+      document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+        const active = btn.dataset.nav === tabName;
+        btn.classList.toggle('text-nora-navy', active);
+        btn.classList.toggle('font-semibold', active);
+        btn.classList.toggle('text-nora-muted', !active);
+        btn.classList.toggle('font-medium', !active);
+        const ind = btn.querySelector('.nav-indicator');
+        if (ind) ind.classList.toggle('hidden', !active);
+      });
+
+      document.querySelectorAll('.desktop-nav-btn').forEach(btn => {
+        const active = btn.dataset.nav === tabName;
+        btn.className = active
+          ? 'desktop-nav-btn px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 bg-white text-nora-navy shadow-xs'
+          : 'desktop-nav-btn px-4 py-2 rounded-lg text-sm font-medium text-nora-muted hover:text-nora-navy transition-colors flex items-center gap-2';
+      });
+
+      if (tabName === 'rumah') {
+        setTimeout(onWindowResize, 50);
+      } else if (tabName === 'pindai') {
+        const floorSelect = document.getElementById('scan-floor-select');
+        if (floorSelect) floorSelect.value = appState.activeFloor;
+      } else if (tabName === 'riwayat') {
+        renderHistoryView();
+      }
+    }
+
+    // 3-State Mobile Bottom Sheet Controller ('compact' | 'medium' | 'expanded')
+    function setSheetState(state) {
+      appState.sheetState = state;
+      syncResponsiveSheetLayout();
+    }
+
+    function syncResponsiveSheetLayout() {
+      const sheet = document.getElementById('control-sheet');
+      const hazardPill = document.getElementById('hazard-pill-container');
+      if (!sheet) return;
+
+      if (window.innerWidth >= 1024) {
+        sheet.style.height = '100%';
+        if (hazardPill) hazardPill.style.bottom = '24px';
+        return;
+      }
+
+      const heights = {
+        compact: 122,
+        medium: 245,
+        expanded: Math.min(window.innerHeight * 0.72, 540)
+      };
+      const h = heights[appState.sheetState] || 245;
+      sheet.style.height = `${h}px`;
+      if (hazardPill) {
+        hazardPill.style.bottom = `${h + 70}px`;
+      }
+    }
+
+    function initBottomSheetGestures() {
+      const header = document.getElementById('sheet-drag-header');
+      if (!header) return;
+
+      let startY = 0;
+      header.addEventListener('touchstart', e => {
+        startY = e.touches[0].clientY;
+      }, { passive: true });
+
+      header.addEventListener('touchend', e => {
+        const endY = e.changedTouches[0].clientY;
+        const diff = startY - endY;
+        if (Math.abs(diff) < 25) {
+          // Tap cycles between medium and expanded
+          setSheetState(appState.sheetState === 'expanded' ? 'medium' : 'expanded');
+          return;
+        }
+        if (diff > 35) {
+          // Swiped up
+          setSheetState(appState.sheetState === 'compact' ? 'medium' : 'expanded');
+        } else if (diff < -35) {
+          // Swiped down
+          setSheetState(appState.sheetState === 'expanded' ? 'medium' : 'compact');
+        }
+      });
+    }
+
+    // =========================================================================
+    // 9. PINDAI (UPLOAD & RECONSTRUCTION PIPELINE) & RIWAYAT
+    // =========================================================================
+    function handleScanFilesSelected(event) {
+      const files = Array.from(event.target.files || []).filter(file => file instanceof File);
+      if (!files.length) return;
+      if (files.length > 20) {
+        showToast('Maksimum 20 file per pemindaian. Sisanya diabaikan.', 'warning');
+      }
+      appState.uploadedScanFiles = files.slice(0, 20);
+      renderScanFilePreviews();
+    }
+
+    function showScanTips() {
+      showToast('Rekam perlahan dengan cahaya cukup. Minimal 4 sudut berbeda per ruangan, hindari gerakan cepat.');
+    }
+
+    function clearScanFiles() {
+      appState.uploadedScanFiles = [];
+      document.getElementById('scan-file-input').value = '';
+      renderScanFilePreviews();
+    }
+
+    const FRAME_FLAG_LABELS = {
+      low_light: 'Cahaya kurang',
+      blurred: 'Buram',
+      low_resolution: 'Resolusi rendah',
+      unreadable: 'Tidak terbaca'
+    };
+
+    const SCAN_STAGE_FALLBACK = [
+      { key: 'upload', label: 'Media diunggah', status: 'pending', detail: null },
+      { key: 'frames', label: 'Ekstraksi frame', status: 'pending', detail: null },
+      { key: 'quality', label: 'Pemeriksaan kualitas & tumpang tindih', status: 'pending', detail: null },
+      { key: 'analysis', label: 'Analisis potensi hambatan', status: 'pending', detail: null },
+      { key: 'ready', label: 'Siap ditinjau', status: 'pending', detail: null }
+    ];
+
+    let activeScanJobId = null;
+    let scanPollToken = 0;
+
+    function renderScanFilePreviews() {
+      const files = appState.uploadedScanFiles;
+      const previewSec = document.getElementById('scan-preview-section');
+      const grid = document.getElementById('scan-preview-grid');
+      const valBox = document.getElementById('scan-validation-msg');
+      const valText = document.getElementById('scan-validation-text');
+
+      if (files.length === 0) {
+        previewSec.classList.add('hidden');
+        valBox.classList.add('hidden');
+        return;
+      }
+
+      previewSec.classList.remove('hidden');
+      document.getElementById('scan-file-count').textContent = `${files.length} media siap diproses`;
+
+      // Actionable validation: warn if only 1 photo is provided
+      const hasVideo = files.some(f => (f.type || '').startsWith('video'));
+      if (!hasVideo && files.length === 1) {
+        valBox.classList.remove('hidden');
+        valText.textContent = 'Satu foto saja tidak cukup untuk menilai seluruh ruangan secara akurat. Tambahkan minimal 3–5 foto dari sudut berbeda atau unggah video.';
+      } else {
+        valBox.classList.add('hidden');
+      }
+
+      grid.innerHTML = files.slice(0, 8).map(f => {
+        const isVid = (f.type || '').startsWith('video');
+        return `
+          <div class="p-2.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col items-center justify-center text-center gap-1.5">
+            <i data-lucide="${isVid ? 'film' : 'image'}" class="w-6 h-6 text-nora-blue"></i>
+            <span class="text-[11px] font-medium text-nora-navy truncate w-full">${escapeHtml(f.name)}</span>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons({ root: grid });
+    }
+
+    function renderScanStages(job) {
+      const list = document.getElementById('pipeline-steps-list');
+      const badge = document.getElementById('pipeline-badge');
+      if (!list) return;
+
+      const stages = Array.isArray(job.stages) && job.stages.length
+        ? job.stages
+        : SCAN_STAGE_FALLBACK.map(stage => ({ ...stage }));
+
+      list.innerHTML = stages.map((stage, index) => {
+        const done = stage.status === 'done';
+        const active = stage.status === 'running';
+        const failed = stage.status === 'failed';
+        const stateClass = done
+          ? 'text-nora-navy font-semibold'
+          : active
+            ? 'text-nora-blue font-semibold'
+            : failed
+              ? 'text-nora-orange font-semibold'
+              : 'text-nora-muted';
+        const iconClass = done
+          ? 'bg-nora-blue text-white'
+          : active
+            ? 'bg-nora-blueSoft text-nora-blue border border-nora-blue'
+            : failed
+              ? 'bg-nora-orangeSoft text-nora-orange border border-nora-orange'
+              : 'bg-gray-100 text-nora-muted';
+        const icon = done ? '✓' : failed ? '!' : String(index + 1);
+        return `
+          <li class="flex items-start gap-3 text-xs sm:text-sm ${stateClass}">
+            <span class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${iconClass}">${icon}</span>
+            <span class="min-w-0">
+              <span class="block">${escapeHtml(stage.label)}</span>
+              ${stage.detail ? `<span class="block text-[11px] font-normal text-nora-muted mt-0.5">${escapeHtml(stage.detail)}</span>` : ''}
+            </span>
+          </li>
+        `;
+      }).join('');
+
+      if (badge) {
+        if (job.status === 'ready') {
+          badge.textContent = 'Siap ditinjau';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700';
+        } else if (job.status === 'failed') {
+          badge.textContent = 'Gagal';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-orangeSoft text-nora-orange';
+        } else {
+          badge.textContent = job.status === 'queued' ? 'Menunggu...' : 'Memproses...';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-blueSoft text-nora-blue';
+        }
+      }
+    }
+
+    async function startReconstructionPipeline() {
+      const files = appState.uploadedScanFiles.filter(file => file instanceof File);
+      const valBox = document.getElementById('scan-validation-msg');
+      const valText = document.getElementById('scan-validation-text');
+      const card = document.getElementById('pipeline-status-card');
+      const list = document.getElementById('pipeline-steps-list');
+      const badge = document.getElementById('pipeline-badge');
+      const doneActions = document.getElementById('pipeline-complete-actions');
+      const resultBox = document.getElementById('pipeline-result');
+      const startBtn = document.getElementById('start-scan-btn');
+
+      if (!files.length) {
+        valText.textContent = 'Pilih video atau beberapa foto ruangan terlebih dahulu sebelum memulai pemrosesan.';
+        valBox.classList.remove('hidden');
+        return;
+      }
+      if (files.length > 20) {
+        valText.textContent = 'Maksimum 20 file per pemindaian.';
+        valBox.classList.remove('hidden');
+        return;
+      }
+      const totalMb = files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024);
+      if (totalMb > 200) {
+        valText.textContent = `Total ukuran media ${totalMb.toFixed(0)} MB melebihi batas 200 MB.`;
+        valBox.classList.remove('hidden');
+        return;
+      }
+
+      const areaName = document.getElementById('scan-area-name').value.trim() || 'Area Rumah';
+      const floorSelect = document.getElementById('scan-floor-select');
+      const floorId = floorSelect ? floorSelect.value : appState.activeFloor;
+
+      card.classList.remove('hidden');
+      doneActions.classList.add('hidden');
+      if (resultBox) {
+        resultBox.classList.add('hidden');
+        resultBox.innerHTML = '';
+      }
+      document.getElementById('pipeline-job-id').textContent = `Area: ${areaName}`;
+
+      if (!API.online) {
+        badge.textContent = 'Mode lokal';
+        badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-orangeSoft text-nora-orange';
+        document.getElementById('pipeline-job-id').textContent = 'Backend tidak terhubung';
+        list.innerHTML = `
+          <li class="flex items-start gap-3 text-xs sm:text-sm text-nora-orange font-semibold">
+            <span class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-nora-orangeSoft text-nora-orange border border-nora-orange">!</span>
+            <span>Pemrosesan media memerlukan backend NORA (FastAPI). Jalankan server lalu muat ulang halaman, atau gunakan tombol "Periksa Ulang" pada Pengaturan.</span>
+          </li>
+        `;
+        showToast('Mode lokal: pemindaian server tidak tersedia.', 'warning');
+        return;
+      }
+
+      const form = new FormData();
+      form.append('area_name', areaName);
+      form.append('floor_id', floorId);
+      files.forEach(file => form.append('files', file, file.name));
+
+      badge.textContent = 'Mengunggah...';
+      badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-blueSoft text-nora-blue';
+      list.innerHTML = SCAN_STAGE_FALLBACK.map((stage, index) => `
+        <li class="flex items-start gap-3 text-xs sm:text-sm ${index === 0 ? 'text-nora-blue font-semibold' : 'text-nora-muted'}">
+          <span class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${index === 0 ? 'bg-nora-blueSoft text-nora-blue border border-nora-blue' : 'bg-gray-100 text-nora-muted'}">${index + 1}</span>
+          <span>${escapeHtml(stage.label)}</span>
+        </li>
+      `).join('');
+
+      startBtn.disabled = true;
+      try {
+        const job = await apiFetch('/api/scans', {
+          method: 'POST',
+          body: form,
+          timeoutMs: 180000
+        });
+        activeScanJobId = job.id;
+        document.getElementById('pipeline-job-id').textContent = `Job ID: ${job.id} • ${areaName}`;
+        renderScanStages(job);
+        await pollScanJob(job.id);
+      } catch (error) {
+        badge.textContent = 'Gagal';
+        badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-orangeSoft text-nora-orange';
+        list.innerHTML = `
+          <li class="flex items-start gap-3 text-xs sm:text-sm text-nora-orange font-semibold">
+            <span class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-nora-orangeSoft text-nora-orange border border-nora-orange">!</span>
+            <span>${escapeHtml(error.message || 'Unggahan gagal.')}</span>
+          </li>
+        `;
+        showToast('Pemindaian gagal: ' + (error.message || 'kesalahan jaringan'), 'warning');
+      } finally {
+        startBtn.disabled = false;
+      }
+    }
+
+    async function pollScanJob(jobId) {
+      const token = ++scanPollToken;
+      let delay = 900;
+      const deadline = Date.now() + 15 * 60 * 1000;
+
+      while (Date.now() < deadline) {
+        let job;
+        try {
+          job = await apiFetch('/api/scans/' + encodeURIComponent(jobId), { timeoutMs: 20000 });
+        } catch (error) {
+          if (token !== scanPollToken) return;
+          const badge = document.getElementById('pipeline-badge');
+          badge.textContent = 'Terputus';
+          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-orangeSoft text-nora-orange';
+          showToast('Koneksi terputus saat memantau pemindaian: ' + (error.message || 'kesalahan jaringan'), 'warning');
+          return;
+        }
+        if (token !== scanPollToken) return;
+
+        renderScanStages(job);
+        if (job.status === 'ready') {
+          renderScanResult(job);
+          document.getElementById('pipeline-complete-actions').classList.remove('hidden');
+          await refreshHistory();
+          return;
+        }
+        if (job.status === 'failed') {
+          showScanFailure(job.error || 'Pemrosesan gagal tanpa pesan rinci.');
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(2500, delay + 200);
+      }
+      showScanFailure('Pemrosesan melebihi batas waktu. Periksa kembali daftar pemindaian beberapa saat lagi.');
+    }
+
+    function showScanFailure(message) {
+      const badge = document.getElementById('pipeline-badge');
+      badge.textContent = 'Gagal';
+      badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-nora-orangeSoft text-nora-orange';
+      const list = document.getElementById('pipeline-steps-list');
+      const item = document.createElement('li');
+      item.className = 'flex items-start gap-3 text-xs sm:text-sm text-nora-orange font-semibold';
+      item.innerHTML = `<span class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-nora-orangeSoft text-nora-orange border border-nora-orange">!</span><span>${escapeHtml(message)}</span>`;
+      list.appendChild(item);
+      showToast('Pemindaian gagal: ' + message, 'warning');
+    }
+
+    async function reloadScanJob(jobId) {
+      try {
+        const job = await apiFetch('/api/scans/' + encodeURIComponent(jobId), { timeoutMs: 15000 });
+        activeScanJobId = job.id;
+        renderScanStages(job);
+        if (job.status === 'ready') renderScanResult(job);
+      } catch (error) {
+        showToast('Gagal memuat ulang hasil pemindaian.', 'warning');
+      }
+    }
+
+    function renderScanResult(job) {
+      const box = document.getElementById('pipeline-result');
+      if (!box) return;
+      activeScanJobId = job.id;
+
+      const result = job.result || {};
+      const quality = result.quality || {};
+      const analysis = result.analysis || {};
+      const frames = Array.isArray(job.frames) ? job.frames : [];
+      const findings = Array.isArray(job.findings) ? job.findings : [];
+      const warnings = Array.isArray(quality.warnings) ? quality.warnings : [];
+      const limitations = Array.isArray(analysis.limitations) ? analysis.limitations : [];
+
+      const modeLabel = analysis.mode === 'ai'
+        ? 'AI vision aktif'
+        : analysis.mode === 'degraded'
+          ? 'AI gagal — hanya kualitas frame'
+          : 'Kualitas frame saja';
+      const coverage = quality.coverageScore == null ? '—' : `${Math.round(quality.coverageScore * 100)}%`;
+      const usable = quality.usableFrames == null ? frames.filter(frame => frame.usable).length : quality.usableFrames;
+      const brightness = quality.brightnessAvg == null ? '—' : Math.round(quality.brightnessAvg);
+      const blur = quality.blurAvg == null ? '—' : Math.round(quality.blurAvg);
+
+      const frameCards = frames.slice(0, 8).map(frame => {
+        const flags = Array.isArray(frame.flags) ? frame.flags : [];
+        const flagText = flags.length ? flags.map(flag => FRAME_FLAG_LABELS[flag] || flag).join(', ') : 'Layak';
+        return `
+          <a href="${escapeHtml(frame.path)}" target="_blank" rel="noopener" class="rounded-xl overflow-hidden border border-gray-200 bg-gray-50 block hover:border-nora-blue/50 transition">
+            <img src="${escapeHtml(frame.thumbPath || frame.path)}" alt="Frame ${frame.id}" class="w-full h-20 object-cover" loading="lazy" />
+            <div class="px-2 py-1.5">
+              <p class="text-[10px] font-semibold text-nora-navy">Frame ${frame.id}</p>
+              <p class="text-[10px] ${flags.length ? 'text-nora-orange' : 'text-nora-muted'} truncate">${escapeHtml(flagText)}</p>
+            </div>
+          </a>
+        `;
+      }).join('');
+
+      box.classList.remove('hidden');
+      box.innerHTML = `
+        <div class="pt-3 border-t border-gray-100 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-bold text-nora-navy">Hasil Pemindaian</h3>
+            <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold ${analysis.mode === 'ai' ? 'bg-nora-blueSoft text-nora-blue' : 'bg-gray-100 text-nora-muted'}">${escapeHtml(modeLabel)}</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div class="p-2.5 rounded-xl bg-nora-creamLight/70 border border-nora-cream">
+              <p class="text-[10px] font-semibold text-nora-muted uppercase tracking-wider">Frame</p>
+              <p class="text-sm font-bold text-nora-navy">${frames.length}</p>
+            </div>
+            <div class="p-2.5 rounded-xl bg-nora-creamLight/70 border border-nora-cream">
+              <p class="text-[10px] font-semibold text-nora-muted uppercase tracking-wider">Layak</p>
+              <p class="text-sm font-bold text-nora-navy">${usable}</p>
+            </div>
+            <div class="p-2.5 rounded-xl bg-nora-creamLight/70 border border-nora-cream">
+              <p class="text-[10px] font-semibold text-nora-muted uppercase tracking-wider">Cahaya rata²</p>
+              <p class="text-sm font-bold text-nora-navy">${brightness}</p>
+            </div>
+            <div class="p-2.5 rounded-xl bg-nora-creamLight/70 border border-nora-cream">
+              <p class="text-[10px] font-semibold text-nora-muted uppercase tracking-wider">Tumpang tindih</p>
+              <p class="text-sm font-bold text-nora-navy">${coverage}</p>
+            </div>
+          </div>
+
+          ${warnings.length ? `
+            <div class="p-3 rounded-xl bg-nora-orangeSoft border border-nora-orange/30 text-xs text-nora-navy space-y-1">
+              <p class="font-semibold text-nora-orange">Catatan kualitas media</p>
+              <ul class="list-disc pl-4 space-y-0.5">${warnings.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul>
+            </div>` : ''}
+
+          <div class="p-3 rounded-xl ${analysis.mode === 'degraded' ? 'bg-nora-orangeSoft border border-nora-orange/30' : 'bg-nora-blueSoft/60 border border-nora-blue/20'} text-xs text-nora-navy space-y-1">
+            <p class="font-semibold">${escapeHtml(modeLabel)}${analysis.model ? ' • ' + escapeHtml(analysis.model) : ''}</p>
+            <p class="leading-relaxed">${escapeHtml(analysis.summary || 'Ringkasan analisis tidak tersedia.')}</p>
+            ${limitations.length ? `<ul class="list-disc pl-4 space-y-0.5 text-nora-muted">${limitations.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul>` : ''}
+          </div>
+
+          ${frames.length ? `
+            <div class="space-y-2">
+              <p class="text-[11px] font-semibold text-nora-muted uppercase tracking-wider">Frame yang Diekstrak</p>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${frameCards}</div>
+              <p class="text-[11px] text-nora-muted">${escapeHtml(result.quality && result.quality.note ? result.quality.note : '')}</p>
+            </div>` : ''}
+
+          <div class="space-y-2.5">
+            <p class="text-[11px] font-semibold text-nora-muted uppercase tracking-wider">Temuan untuk Ditinjau (${findings.length})</p>
+            ${findings.length
+              ? findings.map(finding => findingCard(finding, job)).join('')
+              : `<p class="text-xs text-nora-muted leading-relaxed">Tidak ada temuan bahaya dari sesi ini. ${analysis.mode === 'ai' ? 'Model tidak menemukan potensi hambatan yang cukup yakin.' : 'Aktifkan AI vision pada server untuk analisis potensi hambatan, atau catat hambatan manual melalui menu Hambatan.'}</p>`}
+          </div>
+        </div>
+      `;
+      lucide.createIcons({ root: box });
+    }
+
+    function findingCard(finding, job) {
+      const reviewed = finding.status === 'diterima' || finding.status === 'diabaikan';
+      const priorityClass = finding.priority === 'high'
+        ? 'bg-nora-orangeSoft text-nora-orange'
+        : finding.priority === 'low'
+          ? 'bg-gray-100 text-nora-muted'
+          : 'bg-nora-blueSoft text-nora-blue';
+      const statusBadge = finding.status === 'diterima'
+        ? '<span class="inline-block px-2 py-0.5 rounded-md bg-green-50 text-green-700 text-[11px] font-semibold">Diterima sebagai hambatan</span>'
+        : finding.status === 'diabaikan'
+          ? '<span class="inline-block px-2 py-0.5 rounded-md bg-gray-100 text-nora-muted text-[11px] font-semibold">Diabaikan</span>'
+          : '';
+
+      const locationOptions = appState.locations
+        .filter(loc => loc.floorId === job.floorId)
+        .map(loc => `<option value="${escapeHtml(loc.id)}">${escapeHtml(loc.name)}</option>`)
+        .join('');
+
+      return `
+        <div class="p-3.5 rounded-2xl border border-gray-200 bg-white space-y-2.5">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="text-sm font-bold text-nora-navy">${escapeHtml(finding.title)}</p>
+              <p class="text-[11px] text-nora-muted mt-0.5">${escapeHtml(FINDING_CATEGORY_LABELS[finding.category] || 'Potensi hambatan')} • keyakinan ${Math.round((finding.confidence || 0) * 100)}%</p>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold shrink-0 ${priorityClass}">${escapeHtml(PRIORITY_LABELS[finding.priority] || finding.priority || 'Prioritas sedang')}</span>
+          </div>
+          ${finding.description ? `<p class="text-xs text-nora-navy leading-relaxed">${escapeHtml(finding.description)}</p>` : ''}
+          ${finding.recommendation ? `<div class="p-2.5 rounded-xl bg-nora-blueSoft/60 text-xs text-nora-navy"><strong>Rekomendasi:</strong> ${escapeHtml(finding.recommendation)}</div>` : ''}
+          ${statusBadge ? `<div class="pt-1 border-t border-gray-100">${statusBadge}</div>` : `
+            <div class="space-y-2 pt-1 border-t border-gray-100">
+              <label for="finding-loc-${finding.id}" class="block text-[11px] font-semibold text-nora-muted uppercase tracking-wider">Hubungkan ke lokasi (opsional)</label>
+              <select id="finding-loc-${finding.id}" class="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs text-nora-navy bg-white focus:outline-none focus:border-nora-blue">
+                <option value="">Tanpa titik peta — pakai nama area</option>
+                ${locationOptions}
+              </select>
+              <div class="flex items-center gap-2">
+                <button onclick="acceptFinding('${finding.id}')" class="flex-1 h-9 rounded-xl bg-nora-blue hover:bg-nora-blueDark text-white text-xs font-semibold">Terima sebagai Hambatan</button>
+                <button onclick="dismissFinding('${finding.id}')" class="h-9 px-3 rounded-xl border border-gray-200 text-xs font-semibold text-nora-muted hover:text-nora-navy">Abaikan</button>
+              </div>
+            </div>`}
+        </div>
+      `;
+    }
+
+    async function acceptFinding(findingId) {
+      if (!activeScanJobId) return;
+      const select = document.getElementById('finding-loc-' + findingId);
+      const locationId = select && select.value ? select.value : null;
+      try {
+        await apiFetch(`/api/scans/${encodeURIComponent(activeScanJobId)}/findings/${encodeURIComponent(findingId)}/accept`, {
+          method: 'POST',
+          ...jsonBody({ locationId })
+        });
+        showToast('Temuan diterima sebagai hambatan. Verifikasi caregiver tetap diperlukan.');
+        await refreshHazards();
+        await refreshHistory();
+        await reloadScanJob(activeScanJobId);
+      } catch (error) {
+        showToast('Gagal menerima temuan: ' + (error.message || 'kesalahan server'), 'warning');
+      }
+    }
+
+    async function dismissFinding(findingId) {
+      if (!activeScanJobId) return;
+      try {
+        await apiFetch(`/api/scans/${encodeURIComponent(activeScanJobId)}/findings/${encodeURIComponent(findingId)}/dismiss`, {
+          method: 'POST'
+        });
+        showToast('Temuan diabaikan.');
+        await reloadScanJob(activeScanJobId);
+      } catch (error) {
+        showToast('Gagal mengabaikan temuan: ' + (error.message || 'kesalahan server'), 'warning');
+      }
+    }
+
+    function renderHistoryView() {
+      const scanList = document.getElementById('scan-history-list');
+      const actList = document.getElementById('activity-history-list');
+      if (!scanList || !actList) return;
+
+      const scans = appState.history.filter(h => h.type === 'scan');
+      scanList.innerHTML = scans.length
+        ? scans.map(s => `
+            <div class="p-3 rounded-xl bg-nora-creamLight/60 border border-nora-cream flex items-center justify-between gap-2">
+              <div>
+                <p class="text-xs sm:text-sm font-bold text-nora-navy">${escapeHtml(s.title)}</p>
+                <p class="text-xs text-nora-muted">${escapeHtml(s.detail)} • ${escapeHtml(s.timestamp)}</p>
+              </div>
+              <button onclick="switchTab('rumah')" class="px-3 py-1.5 rounded-lg bg-nora-blue text-white text-xs font-semibold shrink-0">Buka 3D</button>
+            </div>
+          `).join('')
+        : `<p class="text-xs text-nora-muted">Belum ada catatan pemindaian.</p>`;
+
+      actList.innerHTML = appState.history.length
+        ? appState.history.map(item => `
+            <div class="p-3 rounded-xl border border-gray-100 flex items-start justify-between gap-2">
+              <div>
+                <p class="text-xs sm:text-sm font-semibold text-nora-navy">${escapeHtml(item.title)}</p>
+                <p class="text-xs text-nora-muted mt-0.5">${escapeHtml(item.detail)}</p>
+              </div>
+              <span class="text-[11px] text-nora-muted shrink-0">${escapeHtml(item.timestamp)}</span>
+            </div>
+          `).join('')
+        : `<p class="text-xs text-nora-muted">Belum ada riwayat aktivitas.</p>`;
+    }
+
+    async function clearHistoryLog() {
+      if (API.online) {
+        try {
+          await apiFetch('/api/history', { method: 'DELETE' });
+        } catch (error) {
+          showToast('Gagal membersihkan riwayat di server.', 'warning');
+          return;
+        }
+      }
+      appState.history = [];
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      renderHistoryView();
+      showToast('Log riwayat dibersihkan.');
+    }
+
+    // =========================================================================
+    // 10. MODALS, SETTINGS & UTILITIES
+    // =========================================================================
+    function openSettingsModal() {
+      renderApiStatus();
+      document.getElementById('settings-modal').classList.remove('hidden');
+    }
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    let confirmCallback = null;
+    function openConfirmModal(title, message, onAccept) {
+      document.getElementById('confirm-title').textContent = title;
+      document.getElementById('confirm-message').textContent = message;
+      confirmCallback = onAccept;
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+    function closeConfirmModal() {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      confirmCallback = null;
+    }
+    document.getElementById('confirm-accept-btn').addEventListener('click', () => {
+      if (confirmCallback) confirmCallback();
+      closeConfirmModal();
+    });
+
+    function confirmResetDemoData() {
+      closeSettingsModal();
+      openConfirmModal(
+        'Atur Ulang Data Demo?',
+        'Semua lokasi tambahan, hambatan, dan catatan pemindaian akan dikembalikan ke pengaturan awal.',
+        async () => {
+          let serverReset = false;
+          if (API.online) {
+            try {
+              await apiFetch('/api/demo/reset', { method: 'POST' });
+              serverReset = true;
+            } catch (error) {
+              showToast('Server gagal mereset data: ' + (error.message || 'kesalahan server'), 'warning');
+            }
+          }
+          localStorage.removeItem(STORAGE_KEYS.LOCATIONS);
+          localStorage.removeItem(STORAGE_KEYS.HAZARDS);
+          localStorage.removeItem(STORAGE_KEYS.HISTORY);
+          loadPersistentState();
+          if (serverReset) {
+            await connectToServer({ timeoutMs: 6000 });
+          } else {
+            renderDestinationCards();
+            renderAllLocationsList();
+            renderHazardsUI();
+            renderHistoryView();
+            recalculateAndRenderRoute();
+          }
+          showToast('Data demo dikembalikan ke awal.');
+        }
+      );
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = `px-4 py-2.5 rounded-full shadow-pill text-xs font-semibold flex items-center gap-2 transition-all duration-200 ${
+        type === 'warning' ? 'bg-nora-orange text-white' : 'bg-nora-navy text-white'
+      }`;
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 220);
+      }, 2800);
+    }
+
+    function escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // =========================================================================
+    // BOOTSTRAP APPLICATION ON WINDOW LOAD
+    // =========================================================================
+    window.addEventListener('load', async () => {
+      loadPersistentState();
+      lucide.createIcons();
+      syncResponsiveSheetLayout();
+      initBottomSheetGestures();
+      renderDestinationCards();
+      renderHazardsUI();
+      renderHistoryView();
+      initThreeViewer();
+      renderApiStatus();
+      await connectToServer();
+    });
+  </script>
+</body>
+</html>
