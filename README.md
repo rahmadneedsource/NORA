@@ -25,9 +25,9 @@ meninjau potensi hambatan yang terlihat di sepanjang jalur tersebut.
 
 | Anggota | Peran |
 | --- | --- |
-| Muhammad Maula Aqdas Faqiha | Ide & fitur |
+| Mohamad Maula Aqdas Faqiha | Ide & fitur |
 | Nabil Galen Alfadzi | UI/UX & Frontend |
-| Muhammad Rizky Alfitra | UI/UX & Frontend |
+| Rizky Alfitra | UI/UX & Frontend |
 | Bachtiar Rahmad Permadi | Backend |
 
 ---
