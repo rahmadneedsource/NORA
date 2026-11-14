@@ -1,15 +1,11 @@
 # NORA
 
-**NORA — Navigasi Rumah & Skrining Hambatan**
+**NORA — Navigasi Rumah & Skrining Hambatan**  
 *NORA 3D — Scan your home. Understand your space. Navigate more safely.*
 
-NORA adalah aplikasi web yang membantu caregiver keluarga memetakan rumah lansia
-dengan Alzheimer, menelusuri rute antar-ruangan pada digital twin 3D, dan
-meninjau potensi hambatan yang terlihat di sepanjang jalur tersebut.
+NORA adalah aplikasi web interaktif yang membantu *caregiver* keluarga memetakan rumah lansia dengan Alzheimer ke dalam **Digital Twin 3D Parametrik**, menyimulasikan rute aman antar-ruangan, mengatur tata letak ruangan secara langsung, serta meninjau potensi hambatan jatuh berbasis panduan **CDC STEADI**.
 
-> **Status:** MVP hackathon. Aplikasi ini alat bantu peninjauan lingkungan rumah,
-> bukan alat diagnosis, bukan penilaian klinis, dan bukan pengganti pendampingan
-> caregiver.
+> **Status:** MVP hackathon. Aplikasi ini adalah alat bantu peninjauan lingkungan rumah bagi keluarga/*caregiver*, bukan alat diagnosis medis maupun pengganti pendampingan langsung.
 
 ---
 
@@ -17,10 +13,10 @@ meninjau potensi hambatan yang terlihat di sepanjang jalur tersebut.
 
 | Item | Keterangan |
 | --- | --- |
-| Nama tim | **Tim NORA** |
-| Kategori lomba | **Web** |
+| Nama tim | **MAULGROWUP** |
+| Kategori lomba | **Hackathon** |
 | Nama aplikasi | **NORA** |
-| Nama konsep | HomeSafe 3D |
+| Tema | Inclusive Health & Well-being |
 | Asal | Lomba Logicodix 2026 |
 
 | Anggota | Peran |
@@ -34,475 +30,170 @@ meninjau potensi hambatan yang terlihat di sepanjang jalur tersebut.
 
 ## 2. Deskripsi Aplikasi
 
-NORA mengubah cara keluarga memahami rumah lansia: dari daftar ruangan yang
-abstract menjadi model rumah dua lantai yang bisa diputar, dipilih, dan
-ditelusuri. Pengguna dapat memilih lokasi asal dan tujuan, melihat rute yang
-dihitung dengan A* pada graph navigasi, serta melihat potensi hambatan yang
-berada pada segmen jalur tersebut.
+NORA mengubah foto atau video ruangan rumah menjadi **model 3D interaktif** (*Parametric Dollhouse*) yang dapat diputar, disunting tata letaknya, dan ditelusuri layaknya simulasi langsung di dalam rumah.
 
-Pemindaian media nyata juga tersedia. Pengguna mengunggah video atau beberapa
-foto ruangan; server mengekstrak frame dengan FFmpeg, menghitung kualitas visual
-(kecerahan, ketajaman, dan tumpang tindih antar-frame dengan ORB), lalu secara
-opsional mengirim frame terpilih ke model vision melalui API yang kompatibel
-dengan OpenAI. Jika AI tidak dikonfigurasi atau gagal, server **tidak
-mengarang temuan**: hasilnya hanya peringatan kualitas frame dan ditandai
-`quality_only` atau `degraded`.
+Alur kerja utama di dalam aplikasi:
+
+1. **Pindai Ruangan (Foto/Video → Denah 3D):** Unggah beberapa foto atau video tur rumah. Browser mengekstrak *keyframe* penting, menjalankan estimasi kedalaman spasial (**Depth Anything V2** via Transformers.js), lalu mengirim ringkasan frame ke **AI Vision** (Gemini / OpenAI) melalui *serverless proxy* `/api/audit` untuk menghasilkan struktur ruangan, furnitur, rute, dan temuan hambatan CDC STEADI.
+2. **Atur Layout Manual:** *Caregiver* dapat langsung menyeret ruangan, mengubah dimensi (`±0.25m`), menambah/menghapus ruangan dan furnitur, memutar furnitur 90°, serta membuka/menutup pintu antar-ruangan. Dinding dan jalur navigasi 3D otomatis diperbarui secara *real-time*.
+3. **Navigasi Rute Aman & First-Person Walk:** Pilih ruangan asal dan tujuan untuk melihat jalur navigasi 3D lengkap dengan penunjuk arah bergaya GPS, **Auto-Jalan**, kendali **WASD**, dan *minimap* 2D.
+4. **Simulasi Before vs After & Mode Malam:** Bandingkan kondisi rumah sebelum dan sesudah perbaikan hambatan, serta uji visibilitas jalur dalam simulasi pencahayaan malam.
 
 ---
 
 ## 3. Masalah yang Ingin Dibantu
 
-Lansia dengan Alzheimer dapat mengalami gangguan memori dan orientasi, sehingga
-rumah yang familiar pun bisa terasa sulit dikenali. Di sisi lain, rumah sering
-memiliki hambatan sederhana yang luput dari perhatian: kabel melintang, keset
-yang mudah bergeser, barang di jalur berjalan, atau pencahayaan yang kurang.
+Lansia dengan Alzheimer kerap mengalami gangguan memori dan disorientasi ruang (*spatial disorientation*), sehingga jalur sehari-hari menuju kamar mandi atau ruang tamu dapat memicu kebingungan hingga risiko jatuh. Di sisi lain, bahaya sederhana seperti kabel melintang, keset licin, sudut furnitur, atau lorong gelap sering terlewat oleh keluarga.
 
-Keluarga dan caregiver membutuhkan satu tempat untuk:
+NORA membantu *caregiver* untuk:
 
-1. mendokumentasikan kondisi ruangan,
-2. memahami hubungan antar-ruangan,
-3. merencanakan jalur menuju ruangan penting, dan
-4. mencatat serta memverifikasi potensi hambatan sebelum diperbaiki.
-
-NORA mengerjakan keempat hal itu dalam satu antarmuka web yang ringan dan bisa
-dijalankan di VPS kecil.
+1. Memvisualisasikan tata letak rumah lansia dalam bentuk 3D yang mudah dipahami bersama keluarga.
+2. Mensimulasikan jarak pandang lansia melalui mode **First Person** dan **Mode Malam**.
+3. Memetakan serta meninjau potensi hambatan jatuh di sepanjang jalur harian lansia.
+4. Menyimpan riwayat pemindaian dan menyesuaikan denah dengan kondisi rumah sebenarnya.
 
 ---
 
-## 4. Target Pengguna
+## 4. Fitur Utama
 
-- **Pengguna utama:** anggota keluarga dan caregiver yang mengatur rumah lansia.
-- **Penerima manfaat:** lansia dengan Alzheimer atau keterbatasan mobilitas yang
-  tinggal di rumah tersebut.
-- **Konteks penggunaan:** peninjauan rumah bersama keluarga, perencanaan
-  perbaikan, dan persiapan rute sehari-hari.
+### 4.1 Digital Twin 3D Parametrik (`Three.js`)
+- Render rumah 3D interaktif (mendukung denah 1 lantai maupun 2 lantai) lengkap dengan lantai, dinding berpotong celah pintu, furnitur, dan label ruangan.
+- 3 mode kamera: **Isometrik**, **Denah Atas**, dan **First Person** (mendukung keyboard `WASD` dan tombol **Auto-Jalan**).
+- *Minimap* **Denah 2D (X-Z)** yang sinkron dengan posisi dan arah pandang kamera.
+- Mode **Before vs After** dan **Mode Malam** untuk mengevaluasi dampak perbaikan dan pencahayaan.
 
----
+### 4.2 Editor Tata Letak Manual (*Atur Layout Manual*)
+- Seret kotak ruangan di kanvas 2D dengan *magnetic snap* dan resolusi tumpang-tindih (*overlap*) otomatis.
+- Ubah nama, tipe ruangan, dan ukuran (`Lebar X` & `Panjang Z`) per `0.25m`.
+- Kelola furnitur (tambah, geser, putar 90°, hapus) serta kelola koneksi pintu antar-ruangan (`Pintu`).
+- Tombol **Snap Rapi** untuk merapikan posisi ruangan sekaligus memindahkan furnitur dan pin bahaya di dalamnya.
 
-## 5. Fitur Utama
+### 4.3 Navigasi Rute Aman & Skrining CDC STEADI
+- Penghitungan rute antar-ruangan dengan tampilan pita jalur 3D beranimasi dan indikator jarak serta jumlah hambatan di sepanjang jalur.
+- Pin bahaya interaktif di viewport 3D (dapat diklik untuk melihat detail risiko & rekomendasi perbaikan, ditambah pin baru secara manual, dan ditandai *Sudah Ditinjau*).
 
-### 5.1 Digital twin 3D dua lantai
+### 4.4 Pemindaian Foto/Video dengan AI & Depth Estimation
+- **Ekstraksi Video di Browser:** Mengambil *keyframe* otomatis dari video lokal tanpa harus mengunggah video mentah berukuran besar ke server.
+- **Depth Estimation Lokal:** Menggunakan model **Depth Anything V2 Small** (`@huggingface/transformers`) langsung di sisi klien (WebGPU/WASM) untuk memperkirakan kedalaman ruang dan lebar koridor.
+- **AI Vision Proxy (`/api/audit`):** Mendukung **Google Gemini** (`gemini-3.8-flash` dengan *fallback* ke `gemini-3-flash-preview` dan `gemini-3.1-flash-lite`) serta **OpenAI** (`gpt-4o-mini`).
+- **Mode Demo Offline:** Apabila API Key belum diisi, aplikasi tetap dapat diuji dengan simulasi *Mode Demo Offline* yang jujur tanpa memblokir alur pengguna.
 
-- Viewer Three.js dengan dua lantai, dinding, furnitur, tangga, dan label ruangan.
-- Pin lokasi dan pin hambatan yang mengikuti proyeksi kamera 3D.
-- Kontrol orbit, zoom, reset kamera, serta perpindahan lantai.
-- Mode gerak minimal dan preferensi aksesibilitas.
-
-### 5.2 Navigasi A* dan panduan langkah
-
-- Graph navigasi 17 node dan 16 edge, termasuk edge tangga antar-lantai (`e12`).
-- Rute yang sama dihitung di backend (otoritatif) dan di frontend sebagai
-  fallback saat server tidak tersedia.
-- Rute antar-lantai otomatis melewati tangga dan menampilkan jumlah segmen.
-- Panduan langkah per segmen, dengan opsi suara bahasa Indonesia melalui Web
-  Speech API bawaan browser.
-
-### 5.3 Manajemen lokasi
-
-- Tambah, ubah, dan hapus lokasi dengan kategori, ikon, lantai, posisi 3D, dan
-  titik akses graph.
-- Foto referensi ruangan dapat diunggah ke server.
-- Lokasi tanpa titik akses ditandai `Perlu pengaturan jalur` dan tidak dipaksa
-  menghasilkan rute.
-
-### 5.4 Pemindaian media yang jujur
-
-- Unggah hingga 20 file (JPG, PNG, WEBP, MP4, MOV, WEBM) dengan batas total
-  default 200 MB.
-- Ekstraksi frame video dengan FFmpeg; foto dinormalisasi dan dibuat thumbnail.
-- Analisis kualitas: kecerahan, blur (variance of Laplacian), dan tumpang tindih
-  antar-frame (ORB + homografi).
-- Analisis AI opsional melalui provider OpenAI-compatible (OpenRouter, OpenAI,
-  Ollama, LM Studio) atau adapter Anthropic-compatible.
-- Temuan AI harus diterima atau diabaikan secara eksplisit; temuan yang diterima
-  baru menjadi catatan hambatan berstatus `Perlu diperiksa`.
-- Tanpa AI: tidak ada temuan palsu, hanya peringatan kualitas dan batasan.
-
-### 5.5 Manajemen hambatan
-
-- Kategori: tersandung, terpeleset, pencahayaan, mobilitas, akses, lainnya.
-- Prioritas, deskripsi, rekomendasi, bukti visual, dan titik pada peta.
-- Status verifikasi caregiver: `Perlu diperiksa`, `Sudah ditangani`,
-  `Tidak relevan`.
-- Hambatan aktif pada segmen rute ikut ditampilkan; sistem dapat menghitung
-  kandidat jalur alternatif yang menghindari edge terdampak.
-
-### 5.6 Riwayat dan reset demo
-
-- Riwayat aktivitas dan pemindaian tersimpan di server.
-- Semua data demo dapat dikembalikan ke kondisi awal dari menu Pengaturan.
-
-### 5.7 Mode lokal
-
-- Frontend tetap dapat dipakai tanpa backend menggunakan `localStorage`.
-- Badge di header menunjukkan `Server aktif` atau `Mode lokal` secara jujur.
-- Semua operasi tulis mencoba server lebih dulu, lalu jatuh ke penyimpanan lokal
-  bila server tidak tersedia.
+### 4.5 Riwayat & Penyimpanan Lokal
+- Hasil pemindaian dan suntingan tata letak disimpan di `localStorage` browser agar tetap bertahan saat halaman dimuat ulang, dilengkapi tombol **Reset** untuk kembali ke kondisi awal *preset*.
 
 ---
 
-## 6. Akun Demo
-
-**Tidak ada akun demo dan tidak ada autentikasi.** Aplikasi dibuka langsung,
-menggunakan data rumah contoh yang sudah di-seed. Untuk mengembalikan data ke
-kondisi awal, buka **Pengaturan → Atur Ulang Data Demo**.
-
-Sebelum dipublikasikan di internet, pasang autentikasi atau batasi akses di
-level reverse proxy/VPN. Lihat [docs/PRIVACY.md](docs/PRIVACY.md).
-
-### Video demo
-
-Skenario rekaman 3–5 menit, daftar persiapan, dan narasi tersedia di
-[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). Video harus direkam dari aplikasi
-yang benar-benar berjalan pada commit final, tanpa mockup atau hasil tempelan.
-
----
-
-## 7. Tech Stack
+## 5. Tech Stack
 
 | Lapisan | Teknologi | Catatan |
 | --- | --- | --- |
-| Frontend | HTML, CSS, JavaScript (single-file) | `frontend/index.html` |
-| Styling | Tailwind CSS 3.4 | Build Play CDN di-vendor lokal |
-| 3D | Three.js r128 + OrbitControls | Di-vendor lokal |
-| Ikon | Lucide 0.468 | Di-vendor lokal |
-| Font | Inter (400–700) | WOFF2 latin, di-vendor lokal |
-| Backend | Python 3.10+ / FastAPI | Factory `app.main:create_app` |
-| Server | Uvicorn | Menyajikan API dan frontend statis |
-| Database | SQLite via `sqlite3` bawaan | Tanpa ORM |
-| Media | Pillow, OpenCV, FFmpeg/FFprobe | Ekstraksi frame dan kualitas |
-| AI (opsional) | API OpenAI-compatible / Anthropic-compatible | `httpx` |
-| Testing | pytest + FastAPI TestClient | 30 tes |
-| Deployment | Docker, Docker Compose, Nginx/Caddy | Lihat `docs/DEPLOY.md` |
-
-Tidak ada CDN eksternal saat runtime. Tailwind, Three.js, OrbitControls, Lucide,
-dan font Inter disimpan di `frontend/vendor/` agar demo tetap berjalan meski
-jaringan venue buruk.
+| Frontend | React 19, TypeScript, Vite 7 | SPA responsif dengan kanvas 3D |
+| 3D Engine | Three.js (`^0.175.0`) | Dollhouse parametrik, rute 3D, *First-Person* |
+| Client-side AI Depth | `@huggingface/transformers` (`^3.5.0`) | Depth Anything V2 Small (WebGPU/WASM) |
+| Ikon | `lucide-react` (`^0.511.0`) | Ikon antarmuka |
+| AI Vision Proxy | Vercel Serverless Function (`api/audit.ts`) | Proxy ke Gemini API / OpenAI API |
+| Pengujian E2E | `playwright-core` | Verifikasi UI & WebGL |
+| Deployment | Vercel (`vercel.json`) | Hosting frontend + serverless API |
 
 ---
 
-## 8. Arsitektur
-
-```mermaid
-flowchart LR
-    U[Browser caregiver] -->|HTTP same-origin| W[FastAPI + static frontend]
-    W -->|SQLite| DB[(data/nora.db)]
-    W -->|simpan media| FS[(data/uploads, data/media)]
-    W -->|opsional| AI[OpenAI-compatible / Anthropic vision API]
-    W -->|A* graph| G[seed/graph.json]
-    U -->|Three.js| V[Digital twin 3D]
-```
-
-Alur pemindaian:
-
-```text
-upload -> validasi -> simpan -> ekstraksi frame -> kualitas/overlap
-       -> analisis AI (opsional) -> status ready / degraded / quality_only
-```
-
-Detail komponen, model data, dan penanganan kegagalan ada di
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
----
-
-## 9. Struktur Repositori
+## 6. Struktur Repositori
 
 ```text
 .
-├── backend/
-│   ├── app/
-│   │   ├── config.py          # env, path, status AI
-│   │   ├── db.py              # skema SQLite, seed, reset
-│   │   ├── repository.py      # akses data, mapping camelCase
-│   │   ├── schemas.py         # model Pydantic
-│   │   ├── seed_data.py       # data rumah contoh
-│   │   ├── seed/graph.json    # graph navigasi 17 node / 16 edge
-│   │   ├── routers/           # system, locations, hazards, navigation, scans, ...
-│   │   └── services/          # navigation, frames, quality, vision, pipeline, storage
-│   ├── requirements.txt
-│   └── tests/                 # 30 tes API + pipeline
-├── frontend/
-│   ├── index.html             # aplikasi lengkap
-│   └── vendor/                # Tailwind, Three.js, Lucide, Inter
-├── docs/                      # arsitektur, API, AI, privasi, demo, deploy, atribusi
-├── scripts/                   # pemeriksaan higiene repo dan smoke test
-├── deploy/                    # contoh konfigurasi Nginx dan Caddy
-├── Dockerfile
-├── docker-compose.yml
-├── Makefile
-├── pytest.ini
-├── .env.example
-└── README.md
+├── api/
+│   └── audit.ts                   # Serverless proxy untuk Gemini & OpenAI Vision
+├── docs/                          # Dokumentasi tambahan (arsitektur, AI, privasi, dll.)
+├── src/
+│   ├── components/
+│   │   ├── DollhouseViewport.tsx  # Viewport 3D Three.js, kamera, rute, & pin bahaya
+│   │   ├── FloorplanMinimap.tsx   # Minimap denah 2D & arah pandang kamera
+│   │   └── LayoutEditorPanel.tsx  # Editor tata letak 2D (ruangan, furnitur, pintu)
+│   ├── data/
+│   │   └── blueprints.ts          # Preset rumah (2 Lantai & Studio) + graf rute
+│   ├── services/
+│   │   └── visionBlueprint.ts     # Prompt, parser JSON AI Vision, & Mode Demo Offline
+│   ├── utils/
+│   │   ├── depthEstimator.ts      # Pipeline Depth Anything V2 di browser
+│   │   ├── floorGeometry.ts       # Sintesis dinding, bukaan pintu, snap grid, & rute
+│   │   └── videoFrames.ts         # Ekstraktor keyframe video & kompresi frame
+│   ├── App.tsx                    # State utama, tab Ruangan/Pindai/Riwayat, & panel
+│   ├── index.css                  # Styling antarmuka
+│   └── main.tsx                   # Entry point React
+├── .env.example                   # Contoh variabel environment (kosong, aman untuk Git)
+├── .gitignore                     # Mengabaikan .env.local, node_modules, dist, scripts
+├── index.html
+├── package.json
+├── tsconfig.json
+├── vercel.json
+└── vite.config.ts                 # Konfigurasi Vite + middleware /api/audit saat dev lokal
 ```
 
 ---
 
-## 10. Menjalankan Secara Lokal
+## 7. Menjalankan Secara Lokal
 
 ### Prasyarat
+- **Node.js 18+** dan **npm**
 
-- Python 3.10 atau lebih baru
-- FFmpeg dan FFprobe (untuk pemindaian video)
-- Git (opsional)
-
-Ubuntu/Debian:
+### Langkah Instalasi & Menjalankan
 
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip ffmpeg
+# 1. Install dependensi
+npm install
+
+# 2. (Opsional) Siapkan environment untuk AI Vision
+cp .env.example .env.local
+# Buka .env.local lalu isi GEMINI_API_KEY atau OPENAI_API_KEY
+
+# 3. Jalankan server development
+npm run dev
 ```
 
-### Langkah
+Buka URL lokal yang ditampilkan Vite (umumnya `http://localhost:5173`).  
+Untuk membangun versi produksi:
 
 ```bash
-git clone <URL_REPO_ANDA> nora
-cd nora
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-
-cp .env.example .env
-# Edit .env bila ingin mengaktifkan AI vision. Tanpa API key,
-# aplikasi tetap berjalan dalam mode quality_only.
-
-PYTHONPATH=backend uvicorn app.main:create_app --factory \
-  --host 0.0.0.0 --port 8000
-```
-
-Buka <http://127.0.0.1:8000>. Frontend dan API dilayani dari origin yang sama,
-jadi tidak ada konfigurasi CORS tambahan untuk penggunaan normal.
-
-Alternatif dengan Makefile:
-
-```bash
-make install
-make run
-```
-
-Hentikan server dengan `Ctrl+C`.
-
-### Menjalankan dengan Docker
-
-```bash
-cp .env.example .env
-# isi AI_API_KEY bila perlu
-docker compose up -d --build
-docker compose logs -f nora
-```
-
-Panduan lengkap VPS, domain, HTTPS, backup, dan pembaruan ada di
-[docs/DEPLOY.md](docs/DEPLOY.md).
-
----
-
-## 11. Konfigurasi
-
-Semua konfigurasi dibaca dari environment atau file `.env` di root proyek.
-`.env` tidak boleh di-commit.
-
-| Variabel | Default | Keterangan |
-| --- | --- | --- |
-| `APP_ENV` | `development` | Label lingkungan |
-| `DATA_DIR` | `./data` | Lokasi SQLite, upload, dan media |
-| `CORS_ORIGINS` | `localhost:8000,127.0.0.1:8000` | Origin browser yang diizinkan |
-| `AI_PROVIDER` | `none` di kode; contoh `.env` memakai `openai_compatible` | `openai_compatible`, `anthropic`, atau `none` |
-| `AI_BASE_URL` | kosong / OpenRouter untuk `openai_compatible` | Base URL API |
-| `AI_API_KEY` | kosong | **Isi hanya di `.env` lokal/VPS** |
-| `AI_MODEL` | `google/gemini-2.5-flash` saat provider aktif | Model harus mendukung input gambar |
-| `AI_APP_NAME` | `NORA` | Header atribusi opsional |
-| `AI_APP_URL` | kosong | Header `HTTP-Referer` opsional untuk OpenRouter |
-| `AI_TIMEOUT_SECONDS` | `60` | Batas waktu panggilan AI |
-| `AI_MAX_FRAMES` | `6` | Frame maksimum yang dikirim ke AI |
-| `AI_MAX_IMAGE_PX` | `768` | Resolusi sisi terpanjang gambar untuk AI |
-| `MAX_UPLOAD_MB` | `200` | Batas total unggahan per pemindaian |
-| `MAX_FILES` | `20` | Batas jumlah file per pemindaian |
-| `FFMPEG_BIN` | `ffmpeg` | Path binary FFmpeg |
-| `FFPROBE_BIN` | `ffprobe` | Path binary FFprobe |
-
-Jika `AI_PROVIDER=openai_compatible` tetapi `AI_API_KEY` kosong dan base URL
-bukan localhost, sistem otomatis berjalan dalam mode `quality_only`.
-
-Contoh konfigurasi OpenRouter:
-
-```dotenv
-AI_PROVIDER=openai_compatible
-AI_BASE_URL=https://openrouter.ai/api/v1
-AI_MODEL=google/gemini-2.5-flash
-AI_API_KEY=isi_di_env_lokal_anda
-```
-
-Contoh Ollama lokal:
-
-```dotenv
-AI_PROVIDER=openai_compatible
-AI_BASE_URL=http://localhost:11434/v1
-AI_MODEL=llava
-AI_API_KEY=
-```
-
-Dokumentasi AI lebih lengkap: [docs/AI.md](docs/AI.md).
-
----
-
-## 12. Dokumentasi AI
-
-- **API utama:** OpenAI-compatible (`POST {AI_BASE_URL}/chat/completions`),
-  sehingga OpenRouter, OpenAI, Groq, Ollama, dan LM Studio dapat dipakai tanpa
-  perubahan kode.
-- **Adapter opsional:** Anthropic-compatible (`/v1/messages`).
-- **Masukan:** maksimal 6 frame terpilih, tanpa audio dan tanpa metadata lokasi
-  perangkat.
-- **Keluaran:** JSON dengan ringkasan, temuan, prioritas, rekomendasi,
-  keyakinan, dan batasan.
-- **Pengaman:** prompt melarang diagnosis medis, klaim "rute aman", dan temuan
-  yang tidak terlihat. Hanya temuan dengan keyakinan yang masuk akal yang
-  ditampilkan; caregiver harus menerima atau mengabaikan setiap temuan.
-- **Kegagalan:** jika API key tidak ada, provider menolak, timeout, atau respons
-  tidak valid, pipeline **tidak membuat temuan** dan menandai mode `degraded`.
-- **Biaya:** hanya frame terpilih yang dikirim. Dengan 6 frame 768 px, satu
-  pemindaian biasanya mengirim beberapa ratus KB gambar.
-
-Detail prompt, skema, dan batasan: [docs/AI.md](docs/AI.md).
-
----
-
-## 13. API
-
-Dokumentasi interaktif tersedia di `/api/docs` saat server berjalan. Ringkasan
-endpoint dan contoh request ada di [docs/API.md](docs/API.md).
-
-Endpoint utama:
-
-- `GET /api/health`, `GET /api/bootstrap`
-- `POST /api/navigation/route`, `GET /api/navigation/graph`
-- `GET/POST/PATCH/DELETE /api/locations`
-- `GET/POST/PATCH/DELETE /api/hazards`
-- `POST /api/uploads/photo`
-- `POST /api/scans`, `GET /api/scans/{id}`, `GET /api/scans/{id}/events`
-- `POST /api/scans/{id}/findings/{findingId}/accept`
-- `POST /api/scans/{id}/findings/{findingId}/dismiss`
-- `GET/POST/DELETE /api/history`
-- `POST /api/demo/reset`
-
----
-
-## 14. Pengujian
-
-```bash
-python3 -m pytest -q
-```
-
-Jika mesin Anda memiliki plugin pytest pihak ketiga yang rusak, jalankan:
-
-```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -q
-```
-
-Cakupan tes:
-
-- health, bootstrap, graph, dan seed
-- rute satu lantai, lintas lantai, lokasi tidak dikenal
-- CRUD lokasi, validasi lantai/kategori/ikon, unggah/hapus foto
-- CRUD hambatan, validasi edge/prioritas/status
-- riwayat dan reset demo
-- pemindaian foto dan video, ekstraksi frame, kualitas, mode tanpa AI
-- penerimaan/penolakan temuan, pembuatan hambatan, dan konsistensi hapus
-- adapter vision: respons valid, JSON rusak, jaringan gagal, AI nonaktif
-  (tanpa memanggil API eksternal)
-
-Pemeriksaan higiene repo:
-
-```bash
-bash scripts/check_repo_hygiene.sh
-```
-
-Smoke test terhadap server yang berjalan:
-
-```bash
-BASE_URL=http://127.0.0.1:8000 bash scripts/smoke_test.sh
+npm run build
+npm run preview
 ```
 
 ---
 
-## 15. Deployment
+## 8. Konfigurasi Environment
 
-Ringkasan:
+Semua API Key bersifat **opsional** (tanpa API Key, fitur pemindaian dapat menggunakan **Mode Demo Offline** atau input kunci sementara di tab **Pindai**).
 
-1. Siapkan VPS Ubuntu, domain, dan DNS A record.
-2. Install Docker, Docker Compose, dan reverse proxy (Nginx atau Caddy).
-3. Clone repo, salin `.env.example` menjadi `.env`, isi AI key bila perlu.
-4. `docker compose up -d --build`.
-5. Arahkan reverse proxy ke `127.0.0.1:8000`, aktifkan HTTPS.
-6. Batasi akses (autentikasi dasar, VPN, atau allowlist) sebelum membuka data
-   rumah ke publik.
+| Variabel | Keterangan |
+| --- | --- |
+| `GEMINI_API_KEY` | API Key Google Gemini untuk analisis gambar di `/api/audit` |
+| `OPENAI_API_KEY` | API Key OpenAI (`gpt-4o-mini`) sebagai alternatif provider Vision |
 
-Konfigurasi contoh:
-
-- `deploy/nginx.conf`
-- `deploy/Caddyfile`
-- [docs/DEPLOY.md](docs/DEPLOY.md)
+> **Keamanan:** Jangan pernah menyimpan API Key di kode frontend atau men-commit `.env.local`. File `.gitignore` sudah dikonfigurasi untuk mengabaikan `.env`, `.env.local`, dan `.env.*.local`. Saat deploy ke **Vercel**, masukkan variabel di **Project Settings → Environment Variables**.
 
 ---
 
-## 16. Batasan yang Diakui
+## 9. Deployment (Vercel)
 
-Kami sengaja menuliskan batasan ini agar demo tidak menyesatkan:
+Proyek ini sudah dikonfigurasi untuk langsung dideploy ke **Vercel** melalui [vercel.json](vercel.json):
 
-1. **Digital twin adalah model demo yang sudah dibangun**, bukan hasil
-   rekonstruksi otomatis dari video pengguna. Scan pengguna memvalidasi kualitas
-   media dan (bila aktif) menghasilkan temuan visual; model 3D tidak berubah
-   otomatis dari hasil scan.
-2. **Tidak ada COLMAP, SLAM, atau 3D Gaussian Splatting** dalam pipeline saat
-   ini. Arsitektur menyediakan tempat untuk itu, tetapi fitur tersebut tidak
-   diklaim sudah ada.
-3. **Graph navigasi adalah graph yang dikurasi**, bukan hasil ekstraksi geometri
-   otomatis. Rute hanya seakurat graph dan titik akses yang diisi.
-4. **Skala metrik tidak dijamin.** Jarak dan lebar lorong tidak boleh dipakai
-   sebagai pengukuran dunia nyata tanpa kalibrasi.
-5. **AI adalah skrining awal.** AI tidak dapat memastikan permukaan licin, tidak
-   melihat area di luar frame, dan tidak menggantikan penilaian caregiver.
-6. **Belum ada autentikasi.** Deployment publik harus dilindungi di level
-   reverse proxy atau ditambah autentikasi terlebih dahulu.
-7. **SQLite satu node.** Cocok untuk demo dan rumah tunggal; bukan untuk banyak
-   penulisan paralel skala besar.
+1. Hubungkan repositori GitHub ini ke proyek baru di Vercel.
+2. Tambahkan `GEMINI_API_KEY` (dan/atau `OPENAI_API_KEY`) di **Environment Variables**.
+3. Deploy — Vercel akan menjalankan `npm run build` untuk frontend statis dan menyajikan [api/audit.ts](api/audit.ts) pada endpoint `/api/audit`.
 
 ---
 
-## 17. Privasi dan Keamanan
+## 10. Batasan yang Diakui
 
-- Tidak ada API key di dalam repo. Semua kredensial dibaca dari `.env`.
-- Data rumah disimpan di server yang Anda jalankan sendiri.
-- Gambar yang dikirim ke AI hanya frame terpilih, bukan video penuh.
-- Tidak ada analytics, tracking pixel, atau CDN pihak ketiga saat runtime.
-- `.env`, `data/`, dan file PDF panduan diabaikan oleh Git.
-- Detail dan rekomendasi hardening: [docs/PRIVACY.md](docs/PRIVACY.md).
+1. **Bukan rekonstruksi 3D fotogrametri penuh (NeRF/3DGS):** Model 3D dibangun secara parametrik berdasarkan estimasi kedalaman + pemahaman struktur ruangan oleh AI Vision agar ringan dan dapat langsung disunting secara manual oleh *caregiver*.
+2. **Kalibrasi metrik perkiraan:** Ukuran ruangan hasil *scan* bersifat estimasi proporsional dan dapat disempurnakan menggunakan panel **Atur Layout Manual**.
+3. **AI sebagai skrining awal:** Temuan risiko CDC STEADI merupakan bantuan identifikasi awal dan tetap memerlukan verifikasi langsung oleh anggota keluarga/*caregiver*.
 
 ---
 
-## 18. Atribusi dan Orisinalitas
+## 11. Privasi & Keamanan
 
-Kode aplikasi, alur produk, dan desain antarmuka ditulis oleh Tim NORA untuk
-Logicodex 2026. Pustaka pihak ketiga digunakan sesuai lisensinya dan dicantumkan
-di [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md):
-
-- Three.js r128 — MIT
-- OrbitControls — MIT
-- Tailwind CSS 3.4 — MIT
-- Lucide 0.468 — ISC
-- Inter — SIL Open Font License 1.1
-- FastAPI, Uvicorn, Pydantic, Pillow, OpenCV, NumPy, httpx, pytest — lihat
-  dokumen atribusi
-- FFmpeg — dependensi sistem, lisensi build masing-masing
-
-Tidak ada hasil demo yang di-hardcode atau difabrikasi. Pemindaian tanpa AI
-secara eksplisit menghasilkan nol temuan.
-
----
-
-## 19. Lisensi
-
-Hak cipta kode aplikasi: Tim NORA, 2026. Repositori ini disiapkan untuk
-kebutuhan Lomba Logicodex 2026. Lisensi distribusi kode aplikasi belum
-ditetapkan; pustaka dan aset pihak ketiga tetap tunduk pada lisensi
-masing-masing seperti tercantum di [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md).
+- Pemrosesan video menjadi *keyframe* dan estimasi *depth* berjalan langsung di browser pengguna.
+- Hanya *keyframe* terkompresi yang dikirim ke endpoint `/api/audit` apabila pengguna memilih analisis AI aktif.
+- Riwayat dan perubahan tata letak disimpan di `localStorage` perangkat pengguna sendiri.
+- Kredensial server dibaca dari `.env.local` (lokal) atau Environment Variables Vercel dan tidak pernah dikirim ke repositori Git.
