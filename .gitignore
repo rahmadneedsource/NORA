@@ -1,55 +1,8 @@
-# --- Secrets & local configuration ---
-.env
-.env.*
-!.env.example
-
-# --- Runtime data (SQLite, uploads, extracted frames) ---
-data/
-backend/data/
-*.db
-*.db-wal
-*.db-shm
-
-# --- Python ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# --- Node / build tooling (not used, kept for safety) ---
 node_modules/
 dist/
-
-# --- OS noise ---
-.DS_Store
-Thumbs.db
-*:Zone.Identifier
-
-# --- Competition documents (not part of the application) ---
-GUIDEBOOK-*.pdf
-guidebook.txt
-
-# --- AI agent / editor artifacts (must never be committed) ---
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-.cursorrules
-.windsurfrules
-.cursor/
-.claude/
-.codex/
-.opencode/
-.continue/
-.aider*
-.copilot/
-.github/copilot-instructions.md
-copilot-instructions.md
-skills/
-plugins/
-mcp.json
-.mcp.json
-*.mcp.json
+.env
+.env.local
+.env.*.local
+.vercel
+*.log
+scripts/
