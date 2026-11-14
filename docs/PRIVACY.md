@@ -1,7 +1,7 @@
 # Privasi, Keamanan, dan Batasan Penggunaan
 
 NORA memproses data rumah dan media visual. Dokumen ini menjelaskan data apa
-yang disimpan, ke mana data dikirim, dan langkah yang harus diambil sebelum
+yang akan disimpan, ke mana data dikirim, dan langkah yang harus diambil sebelum
 aplikasi dipakai di luar demo lokal.
 
 > **Penting:** MVP ini belum memiliki autentikasi. Jangan menaruh data rumah
