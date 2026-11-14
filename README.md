@@ -1,7 +1,7 @@
 # NORA
 
 **NORA — Navigasi Rumah & Skrining Hambatan**
-*HomeSafe 3D — Scan your home. Understand your space. Navigate more safely.*
+*NORA 3D — Scan your home. Understand your space. Navigate more safely.*
 
 NORA adalah aplikasi web yang membantu caregiver keluarga memetakan rumah lansia
 dengan Alzheimer, menelusuri rute antar-ruangan pada digital twin 3D, dan
@@ -21,13 +21,13 @@ meninjau potensi hambatan yang terlihat di sepanjang jalur tersebut.
 | Kategori lomba | **Web** |
 | Nama aplikasi | **NORA** |
 | Nama konsep | HomeSafe 3D |
-| Asal | Lomba Logicodex 2026 |
+| Asal | Lomba Logicodix 2026 |
 
 | Anggota | Peran |
 | --- | --- |
 | Mohamad Maula Aqdas Faqiha | Ide & fitur |
 | Nabil Galen Alfadzi | UI/UX & Frontend |
-| Rizky Alfitra | UI/UX & Frontend |
+| Rizky Afitra | UI/UX & Frontend |
 | Bachtiar Rahmad Permadi | Backend |
 
 ---
