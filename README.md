@@ -2,7 +2,7 @@
 
 *NORA 3D — Scan your home. Understand your space. Navigate more safely.*
 
-NORA adalah aplikasi web interaktif yang membantu *caregiver* keluarga memetakan rumah lansia dengan **Alzheimer** ke dalam **Digital Twin 3D Parametrik**, menyimulasikan rute aman antar-ruangan, menyunting tata letak ruangan secara langsung, serta meninjau potensi hambatan jatuh berbasis panduan **CDC STEADI**.
+NORA adalah aplikasi web interaktif yang membantu *caregiver* keluarga memetakan rumah **penderita Alzheimer** ke dalam **Digital Twin 3D Parametrik**, menyimulasikan rute aman antar-ruangan, menyunting tata letak ruangan secara langsung, serta meninjau potensi hambatan jatuh berbasis panduan **CDC STEADI**.
 
 > **Status:** MVP hackathon. Aplikasi ini adalah alat bantu peninjauan lingkungan rumah bagi keluarga/*caregiver*, bukan alat diagnosis medis maupun pengganti pendampingan langsung.
 
@@ -27,7 +27,7 @@ NORA adalah aplikasi web interaktif yang membantu *caregiver* keluarga memetakan
 | Bachtiar Rahmad Permadi | Backend |
 
 ### 1.2 Latar Belakang
-Lansia dengan **Alzheimer** kerap mengalami gangguan memori dan disorientasi ruang (*spatial disorientation*), sehingga jalur harian di rumah sendiri—seperti dari kamar tidur menuju toilet pada malam hari—dapat memicu kebingungan hingga risiko jatuh. Di sisi lain, bahaya sederhana seperti kabel melintang, keset licin, sudut furnitur, atau lorong gelap sering luput dari perhatian keluarga.
+**Penderita Alzheimer** kerap mengalami gangguan memori dan disorientasi ruang (*spatial disorientation*), sehingga jalur harian di rumah sendiri—seperti dari kamar tidur menuju toilet pada malam hari—dapat memicu kebingungan hingga risiko jatuh. Di sisi lain, bahaya sederhana seperti kabel melintang, keset licin, sudut furnitur, atau lorong gelap sering luput dari perhatian keluarga.
 
 ### 1.3 Gambaran Solusi
 NORA mengubah foto atau video ruangan rumah menjadi **model 3D interaktif** (*Parametric Dollhouse*) yang dapat diputar, disunting tata letaknya, dan ditelusuri layaknya simulasi langsung di dalam rumah:
@@ -37,8 +37,8 @@ NORA mengubah foto atau video ruangan rumah menjadi **model 3D interaktif** (*Pa
 - **Simulasi Before vs After & Mode Malam:** Membandingkan kondisi rumah sebelum dan sesudah perbaikan hambatan serta menguji visibilitas jalur pada pencahayaan malam hari.
 
 ### 1.4 Target Pengguna
-- **Pengguna Utama:** Anggota keluarga dan *caregiver* yang mengatur keamanan lingkungan rumah lansia.
-- **Penerima Manfaat:** Lansia dengan Alzheimer atau keterbatasan mobilitas agar dapat bernavigasi lebih aman di dalam rumah.
+- **Pengguna Utama:** Anggota keluarga dan *caregiver* yang mengatur keamanan lingkungan rumah **penderita Alzheimer**.
+- **Penerima Manfaat:** **Penderita Alzheimer** maupun individu dengan keterbatasan orientasi ruang agar dapat bernavigasi lebih aman di dalam rumah.
 
 ---
 
